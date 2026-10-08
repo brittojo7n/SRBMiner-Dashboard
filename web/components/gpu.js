@@ -135,10 +135,15 @@ export function render(container, gpus, gpuError, spec = DEFAULT_SPEC) {
     text(r.name, v.name);
     for (const m of spec.metrics) {
       const metric = r[m.key];
-      if (m.parts)
+      if (m.parts) {
         metric.set({ parts: { used: v[m.parts[0]], total: v[m.parts[1]] } });
-      else if (m.status) metric.set({ value: v[m.key], status: v.tempStatus });
-      else metric.set({ value: v[m.key] });
+      } else if (m.key === "eff") {
+        metric.set({ value: v.eff, unit: v.effUnit || m.unit || "H/s/W" });
+      } else if (m.status) {
+        metric.set({ value: v[m.key], status: v.tempStatus });
+      } else {
+        metric.set({ value: v[m.key] });
+      }
     }
     r.util.set({ value: v.util });
     style(r.util.refs.bar, "transform", `scaleX(${v.barScale})`);

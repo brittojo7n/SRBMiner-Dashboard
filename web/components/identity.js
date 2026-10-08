@@ -88,9 +88,12 @@ export function createIdentity() {
         pool.value.title = next.pool;
         pool.row.hidden = false;
       }
-      const parsed = typeof next === "string"
-        ? parseMinerUser(next)
-        : parseMinerUser(next.user || minerUserSource(next));
+      const rawUser = typeof next === "string" ? next : (next.user || minerUserSource(next));
+      const parsed = parseMinerUser(rawUser);
+      if (typeof next === "object" && next !== null) {
+        if (!parsed.worker && next.worker) parsed.worker = String(next.worker).trim();
+        if (!parsed.wallet && next.wallet) parsed.wallet = String(next.wallet).trim();
+      }
       const nextKey = `${parsed.wallet}\0${parsed.worker || ""}\0${next.algo || ""}\0${next.pool || ""}`;
       if (nextKey === lastKey) return this;
       lastKey = nextKey;

@@ -1,11 +1,10 @@
-"use strict";
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { resolveIdentity } = require("../../web/lib/user");
 const { parseMinerArgs } = require("./args");
 
 const GPU_POLL_MS = 5000;
+const API_POLL_MS = 10000;
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function parseEnvFile(text) {
@@ -39,9 +38,7 @@ function loadEnvFile(envPath, env = process.env) {
     for (const key of Object.keys(parsed)) {
       if (env[key] === undefined) env[key] = parsed[key];
     }
-  } catch (err) {
-    console.error("[dashboard] env load failed:", err.message);
-  }
+  } catch {}
   return env;
 }
 
@@ -55,19 +52,6 @@ function splitArgs(raw) {
   return (String(raw || "").match(/"([^"]*)"|(\S+)/g) || []).map((token) => token.replace(/^"|"$/g, ""));
 }
 
-function parseIndexList(value) {
-  if (!value) return null;
-  const list = String(value).split(",").map((part) => Number.parseInt(part.trim(), 10)).filter(Number.isInteger);
-  return list.length ? list : null;
-}
-
-function deviceSelection(flags) {
-  return {
-    cu: flags.allCuDevices ? null : parseIndexList(flags.cuDevices),
-    cl: flags.allClDevices ? null : parseIndexList(flags.clDevices),
-  };
-}
-
 function buildConfig(env = process.env, opts = {}) {
   const platform = opts.platform || process.platform;
   const warnings = [];
@@ -75,10 +59,20 @@ function buildConfig(env = process.env, opts = {}) {
   const PORT = clampInt(rawPort, 0, 65535, 4067);
   if (rawPort != null && rawPort !== "" && Number(rawPort) !== PORT) warnings.push(`PORT "${rawPort}" is invalid; using ${PORT}.`);
   const HOST = env.HOST || "127.0.0.1";
+  const dashboardRoot = path.resolve(__dirname, "..", "..");
+  const MINER_CWD = env.MINER_CWD
+    ? (path.isAbsolute(env.MINER_CWD) ? env.MINER_CWD : path.resolve(dashboardRoot, env.MINER_CWD))
+    : "";
   const MINER_EXE = env.MINER_EXE || (platform === "win32" ? "SRBMiner-MULTI.exe" : "SRBMiner-MULTI");
   const MINER_ARGS = splitArgs(env.MINER_ARGS);
   const flags = parseMinerArgs(MINER_ARGS);
+  const explicitWallet = env.WALLET ? String(env.WALLET).trim() : "";
+  const explicitWorker = env.WORKER ? String(env.WORKER).trim() : "";
+  if (!flags.wallet && explicitWallet) flags.wallet = explicitWallet;
+  if (!flags.worker && explicitWorker) flags.worker = explicitWorker;
   const identity = resolveIdentity(flags);
+  const ALGO = flags.algo || "";
+  const POOL = flags.pool || "";
 
   if (!MINER_ARGS.includes("--api-enable")) {
     MINER_ARGS.push("--api-enable");
@@ -95,22 +89,12 @@ function buildConfig(env = process.env, opts = {}) {
     MINER_ARGS.push("--api-port", String(API_PORT));
   }
 
-  const logFileIdx = MINER_ARGS.findIndex((a) => a === "--log-file" || a.startsWith("--log-file="));
-  let MINER_LOG_FILE = "srbminer_dashboard.log";
-  if (logFileIdx !== -1) {
-    MINER_LOG_FILE = MINER_ARGS[logFileIdx].startsWith("--log-file=")
-      ? MINER_ARGS[logFileIdx].slice(11)
-      : MINER_ARGS[logFileIdx + 1];
-  } else {
-    MINER_ARGS.push("--log-file", MINER_LOG_FILE, "--log-file-mode", "0");
-  }
-
   return Object.freeze({
-    PORT, HOST, GPU_POLL_MS, API_PORT, MINER_LOG_FILE,
-    MINER_EXE, MINER_ARGS: Object.freeze(MINER_ARGS), MINER_CWD: env.MINER_CWD || "",
+    PORT, HOST, GPU_POLL_MS, API_POLL_MS, API_PORT,
+    MINER_EXE, MINER_ARGS: Object.freeze(MINER_ARGS), MINER_CWD,
     PASSPHRASE: env.PASSPHRASE || "", SESSION_SECRET: env.SESSION_SECRET || "",
     USER: identity.user, WALLET: identity.wallet, WORKER: identity.worker,
-    DEVICE_SELECTION: Object.freeze(deviceSelection(flags)),
+    ALGO, POOL,
     FORWARD_CONSOLE: String(env.FORWARD_CONSOLE).toLowerCase() === "true",
     warnings: Object.freeze(warnings),
   });
@@ -126,4 +110,4 @@ function validateConfig(config) {
 loadEnvFile();
 const config = buildConfig(process.env);
 
-module.exports = Object.assign({}, config, { validateConfig, buildConfig, loadEnvFile, parseEnvFile, GPU_POLL_MS });
+module.exports = Object.assign({}, config, { validateConfig, buildConfig, loadEnvFile, parseEnvFile, GPU_POLL_MS, API_POLL_MS });

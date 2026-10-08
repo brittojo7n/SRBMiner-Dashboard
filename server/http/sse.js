@@ -1,5 +1,3 @@
-"use strict";
-
 const { formatStatsSnapshot } = require("../utils/state");
 const { LIMITS } = require("../utils/constants");
 

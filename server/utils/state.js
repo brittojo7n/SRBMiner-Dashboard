@@ -1,5 +1,3 @@
-"use strict";
-
 const os = require("node:os");
 const { STATUS } = require("./constants");
 
@@ -53,7 +51,7 @@ function getServerTz() {
 const SERVER_TZ = getServerTz();
 const HOSTNAME = os.hostname();
 
-function createState(wallet = "", maxLogs = 50, worker = null, user = "") {
+function createState(wallet = "", maxLogs = 50, worker = null, user = "", algo = "", pool = "") {
   return {
     dirty: true,
     startedAt: Date.now(),
@@ -70,6 +68,8 @@ function createState(wallet = "", maxLogs = 50, worker = null, user = "") {
       user: user || "",
       wallet,
       worker: worker || null,
+      algo: algo || "",
+      pool: pool || "",
     },
     mining: {
       hashrateKHs: null,
@@ -85,10 +85,6 @@ function createState(wallet = "", maxLogs = 50, worker = null, user = "") {
       lastAcceptedAt: null,
       gpuHashrates: Object.create(null),
       seenDevices: [],
-      hashratesReady: false,
-      expectedWorkers: 0,
-      workerMap: null,
-      jsonRejects: 0,
       pciMap: Object.create(null),
       algorithms: [],
       rigName: "",
@@ -105,8 +101,10 @@ function hashrateForGpu(state, gpu) {
   const mapped = state.mining.pciMap[gpu.pciBusId];
   const devIndex = mapped !== undefined ? mapped : gpu.index;
   const rates = state.mining.gpuHashrates;
-  const cuda = rates[`cu_${devIndex}`];
-  return cuda !== undefined ? cuda : rates[`cl_${devIndex}`];
+  const direct = rates[`gpu${devIndex}`] ?? rates[`cu_${devIndex}`] ?? rates[`cl_${devIndex}`] ?? rates[devIndex];
+  if (direct !== undefined) return direct;
+  if (state.gpu.length === 1 && state.mining.hashrateGpu > 0) return state.mining.hashrateGpu;
+  return null;
 }
 
 function formatStatsSnapshot(state, options) {
@@ -128,6 +126,7 @@ function formatStatsSnapshot(state, options) {
       exitCode: miner.exitCode, signal: miner.signal, lastLine: miner.lastLine,
       lastError: miner.lastError, user: miner.user || "", wallet: miner.wallet,
       worker: miner.worker || null, logs: entries,
+      algo: miner.algo || "", pool: miner.pool || "",
     },
     logsFrom, logSeq: logs.seq, logCount: logs.length, logCapacity: logs.capacity,
     mining: {

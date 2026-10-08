@@ -1,5 +1,3 @@
-"use strict";
-
 function parseSpecs(raw) {
   return raw.split(",").map((s) => s.trim()).filter(Boolean).map((spec) => {
     const m = /^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(spec);
@@ -106,7 +104,6 @@ function bundleModules(read, entry = "services/app") {
   }
   const idMap = new Map(order.map((id, i) => [id, i]));
   const lines = [
-    '"use strict";',
     "(() => {",
     "const __mods = [];",
     "const __cache = [];",

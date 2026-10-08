@@ -1,5 +1,3 @@
-"use strict";
-
 const MAX_BUCKETS = 128;
 
 function createRateLimiter(max, windowMs, penaltyMs = 0, maxPenaltyMs = 0) {

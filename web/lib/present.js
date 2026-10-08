@@ -37,6 +37,25 @@ export function formatHashrate(h) {
   if (h >= 1e3) return `${num(h / 1e3, 2)} kH/s`;
   return `${num(h, 2)} H/s`;
 }
+export function formatEfficiency(eff) {
+  if (eff == null || !Number.isFinite(eff) || eff <= 0) {
+    return { value: DASH, unit: "H/s/W", text: DASH };
+  }
+  if (eff >= 1e9) {
+    const val = num(eff / 1e9, 2);
+    return { value: val, unit: "GH/s/W", text: `${val} GH/s/W` };
+  }
+  if (eff >= 1e6) {
+    const val = num(eff / 1e6, 2);
+    return { value: val, unit: "MH/s/W", text: `${val} MH/s/W` };
+  }
+  if (eff >= 1e3) {
+    const val = num(eff / 1e3, 2);
+    return { value: val, unit: "kH/s/W", text: `${val} kH/s/W` };
+  }
+  const val = num(eff, 2);
+  return { value: val, unit: "H/s/W", text: `${val} H/s/W` };
+}
 export function presentSnapshot(snapshot, options = {}) {
   const m = snapshot.mining;
   return {
@@ -53,16 +72,17 @@ export function presentSnapshot(snapshot, options = {}) {
     worker: snapshot.miner.worker || null,
     algo: (m.algorithms && m.algorithms.length > 0)
       ? m.algorithms.map((a) => a.name).join(", ")
-      : "",
+      : (snapshot.miner.algo || ""),
     pool: (m.algorithms && m.algorithms[0] && m.algorithms[0].pool && m.algorithms[0].pool.address)
       ? m.algorithms[0].pool.address
-      : "",
+      : (snapshot.miner.pool || ""),
     host: snapshot.host.hostname || "",
   };
 }
 export function presentGpu(gpu, opts = {}) {
   const levels = opts.tempLevels || { warn: 72, hot: 80 };
   const eff = gpu.hashrate > 0 && gpu.powerW > 0 ? gpu.hashrate / gpu.powerW : null;
+  const effParsed = formatEfficiency(eff);
   const util = gpu.utilizationPct == null ? 0 : Math.max(0, Math.min(100, gpu.utilizationPct));
   return {
     name: `GPU ${gpu.index} \u2022 ${gpu.name || "Unknown"}`,
@@ -72,6 +92,7 @@ export function presentGpu(gpu, opts = {}) {
     power: num(gpu.powerW, 1), core: num(gpu.coreMHz, 0), mem: num(gpu.memoryMHz, 0),
     vramUsed: num(gpu.memoryUsedMB, 0), vramTotal: num(gpu.memoryTotalMB, 0),
     hashrate: formatHashrate(gpu.hashrate),
-    eff: eff != null ? num(eff, 2) : DASH, util: num(gpu.utilizationPct, 0), barScale: util / 100,
+    eff: effParsed.value, effUnit: effParsed.unit, effFormatted: effParsed.text,
+    util: num(gpu.utilizationPct, 0), barScale: util / 100,
   };
 }

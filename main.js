@@ -1,4 +1,3 @@
-"use strict";
 const config = require("./server/utils/config");
 const { createState } = require("./server/utils/state");
 const { GpuManager } = require("./server/miner/gpu");
@@ -17,7 +16,14 @@ function yieldCpuToMiner() {
 class Server {
   constructor(options = {}) {
     this.config = options.config || config;
-    this.state = createState(this.config.WALLET, LIMITS.MAX_LOGS, this.config.WORKER, this.config.USER);
+    this.state = createState(
+      this.config.WALLET,
+      LIMITS.MAX_LOGS,
+      this.config.WORKER,
+      this.config.USER,
+      this.config.ALGO,
+      this.config.POOL
+    );
     this._exiting = false;
     this._shutdownWatchdog = null;
     let idleTimeout = null;
@@ -43,7 +49,7 @@ class Server {
       },
     });
     this.gpuManager = new GpuManager({ state: this.state, pollMs: this.config.GPU_POLL_MS, onUpdate: () => this.sseHub.broadcast() });
-    this.apiManager = new ApiManager({ state: this.state, port: this.config.API_PORT, pollMs: 5000, onUpdate: () => this.sseHub.broadcast() });
+    this.apiManager = new ApiManager({ state: this.state, port: this.config.API_PORT, pollMs: this.config.API_POLL_MS, onUpdate: () => this.sseHub.broadcast() });
     this.minerManager = new MinerManager({ config: this.config, state: this.state, onUpdate: () => this.sseHub.broadcast() });
     this.httpServer = createHttpServer({
       config: this.config,
@@ -51,12 +57,13 @@ class Server {
       sseHub: this.sseHub,
       minerManager: this.minerManager,
       gpuManager: this.gpuManager,
+      apiManager: this.apiManager,
       webDir: options.webDir,
     });
-    this.boundExit = () => this.stop();
+    this.boundExit = (fromSigint = false) => this.stop(0, fromSigint);
     this.handleSigint = () => {
       if (this.minerManager && this.minerManager.isStoppingChild) return;
-      this.boundExit();
+      this.boundExit(true);
     };
     this.handleFault = (scope, err) => this._onFault(scope, err);
   }
@@ -64,7 +71,7 @@ class Server {
     try {
       this.minerManager.pushLog(`Dashboard internal error (${scope}): ${(err && err.message) || err}`, LOG.ERROR);
       this.sseHub.broadcast();
-    } catch (logErr) {}
+    } catch {}
   }
   start() {
     this._attachSignalHandlers();
@@ -82,7 +89,7 @@ class Server {
     this.minerManager.start();
     return this;
   }
-  stop(exitCode = 0) {
+  stop(exitCode = 0, fromSigint = false) {
     if (this._exiting) return this._stopPromise || Promise.resolve();
     this._exiting = true;
     this.gpuManager.stop();
@@ -96,7 +103,7 @@ class Server {
         this.httpServer.close(() => resolve());
       });
     this._stopPromise = Promise.resolve()
-      .then(() => this.minerManager.stop())
+      .then(() => this.minerManager.stop({ fromSigint }))
       .catch((err) => this._onFault("miner-stop", err))
       .then(() => {
         this.minerManager.dispose();

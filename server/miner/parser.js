@@ -1,5 +1,3 @@
-"use strict";
-
 const { STATUS, LOG } = require("../utils/constants");
 const { stripAnsi } = require("./devices");
 
@@ -9,7 +7,6 @@ const RX_SRB_TOTAL = /Total:\s*([\d.]+)\s*([kKMGT]?H\/s)(?:\s*\[.*?A:(\d+)\s+R:(
 const RX_SRB_DIFF = /Diff:\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)/i;
 const RX_SRB_LATENCY = /Latency:\s*~?(\d+)\s*ms/i;
 const RX_SRB_CONNECTED = /Connected to\s*([^\s]+)/i;
-const RX_SRB_POOL = /Pool:\s*([^\s]+)/i;
 
 const RX_DIFF = /difficulty(?:\s*(?:set|is))?\s*(?:to|:)?\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)/i;
 const RX_FATAL = /\b(?:cuda\s+error|failed\s+to|fatal|exception|enoent|out\s+of\s+memory)\b/i;

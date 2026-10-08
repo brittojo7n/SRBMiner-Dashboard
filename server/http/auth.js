@@ -1,5 +1,3 @@
-"use strict";
-
 const crypto = require("node:crypto");
 const { LIMITS } = require("../utils/constants");
 

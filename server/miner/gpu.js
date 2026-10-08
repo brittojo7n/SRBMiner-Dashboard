@@ -1,4 +1,3 @@
-"use strict";
 const { execFile } = require("node:child_process");
 const { LIMITS } = require("../utils/constants");
 const { normalizePci } = require("./devices");
@@ -68,16 +67,23 @@ class GpuManager extends Poller {
           }
         }
         if (this.state.apiGpuDevices && this.state.apiGpuDevices.length > 0) {
+          this.state.gpuError = "";
           let validCount = 0;
           for (const apiGpu of this.state.apiGpuDevices) {
             const name = apiGpu.model || `GPU ${apiGpu.id}`;
             const temperatureC = apiGpu.temperature || null;
-            const powerW = apiGpu.power_usage || null;
+            const powerW = apiGpu.asic_power ?? apiGpu.power_usage ?? null;
+            const coreMHz = apiGpu.core_clock || null;
+            const memoryMHz = apiGpu.memory_clock || null;
+            const pciBusId = apiGpu.topology_id ? normalizePci(apiGpu.topology_id) : "";
             if (validCount < this.state.gpu.length) {
               const g = this.state.gpu[validCount];
               g.name = name; g.temperatureC = temperatureC; g.powerW = powerW;
+              if (coreMHz != null) g.coreMHz = coreMHz;
+              if (memoryMHz != null) g.memoryMHz = memoryMHz;
+              if (pciBusId) g.pciBusId = pciBusId;
             } else {
-              this.state.gpu.push({ index: validCount, name, temperatureC, powerW });
+              this.state.gpu.push({ index: validCount, name, temperatureC, powerW, coreMHz, memoryMHz, pciBusId });
             }
             validCount++;
           }

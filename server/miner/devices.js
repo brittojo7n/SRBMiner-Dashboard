@@ -1,5 +1,3 @@
-"use strict";
-
 const { LIMITS } = require("../utils/constants");
 
 const RX_ANSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
@@ -23,7 +21,7 @@ function normalizePci(raw) {
   return text;
 }
 
-const RX_SRB_DEV = /GPU(\d+)\s+\[\d+\]\[\d+\]\s+\[([0-9a-fA-F:.]+)\]/i;
+const RX_SRB_DEV = /GPU(\d+)\s+\[[^\]]+\]\[[^\]]+\]\s+\[([0-9a-fA-F:.]+)\]/i;
 
 function parseCudaDeviceList(output, pciMap) {
   let inCuda = false, pendingIndex = null;
@@ -54,9 +52,10 @@ function parseCudaDeviceList(output, pciMap) {
   return pciMap;
 }
 
-function createStreamReader(onLine, onFlush, isEnabled) {
+function createStreamReader(onLine, onFlush, isEnabled, forward) {
   let buffer = "";
   return function handleChunk(chunk) {
+    if (forward) forward(chunk);
     const enabled = isEnabled();
     if (!enabled) {
       buffer = "";

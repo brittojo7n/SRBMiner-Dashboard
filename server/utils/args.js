@@ -1,5 +1,3 @@
-"use strict";
-
 const VALUE_FLAGS = Object.freeze({
   algo: Object.freeze(["-a", "--algorithm"]),
   algoCpu: Object.freeze(["-ac", "--algorithm-cpu"]),

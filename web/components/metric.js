@@ -101,6 +101,10 @@ export function createMetric(opts = {}) {
     refs,
     set(next = {}) {
       if (next.value !== undefined) text(refs.num, next.value);
+      if (next.unit !== undefined && refs.unit) {
+        text(refs.unit, next.unit || "");
+        refs.unit.style.display = next.unit ? "" : "none";
+      }
       if (next.parts !== undefined) {
         for (const [k, v] of Object.entries(next.parts)) {
           if (refs.parts && refs.parts[k]) text(refs.parts[k], v);

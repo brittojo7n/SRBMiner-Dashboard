@@ -1,5 +1,3 @@
-"use strict";
-
 const http = require("node:http");
 const os = require("node:os");
 const { formatStatsSnapshot } = require("../utils/state");
@@ -110,7 +108,7 @@ function readJsonBody(req) {
   });
 }
 
-function createHttpServer({ config, state, sseHub, minerManager, gpuManager, webDir }) {
+function createHttpServer({ config, state, sseHub, minerManager, gpuManager, apiManager, webDir }) {
   const staticFiles = buildAssets(webDir);
   const requiresAuth = config.PASSPHRASE.length > 0;
   const sessions = new SessionStore({ secret: config.SESSION_SECRET });
@@ -192,10 +190,12 @@ function createHttpServer({ config, state, sseHub, minerManager, gpuManager, web
     const gpuCheck = { status: gpuStatus, polling: gpuPolling };
     if (gpuPolling) gpuCheck.devices = gpuDevices;
     if (gpuError) gpuCheck.error = gpuError;
+    const apiPolling = apiManager ? apiManager.running : false;
     const sseStatus = "pass";
     const checks = {
       miner: { status: minerStatus, state: snapshot.mining.status, pid: snapshot.miner.pid },
       gpu: gpuCheck,
+      api: { status: "pass", polling: apiPolling },
       sse: { status: sseStatus, connections: sseHub.size },
     };
     const checkStatuses = [minerStatus, gpuStatus, sseStatus];

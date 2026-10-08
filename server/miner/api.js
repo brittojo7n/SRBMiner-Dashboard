@@ -1,7 +1,8 @@
-"use strict";
 const http = require("node:http");
 const { Poller } = require("../utils/timers");
 const { STATUS } = require("../utils/constants");
+const { normalizePci } = require("./devices");
+const { parseMinerUser } = require("../../web/lib/user");
 
 class ApiManager extends Poller {
   constructor({ state, port, pollMs = 2000, onUpdate } = {}) {
@@ -11,51 +12,37 @@ class ApiManager extends Poller {
 
   _poll() {
     if (!this.running) return;
-    if (this.busy) {
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = unrefTimer(() => this._poll(), this.pollMs);
+    if (this.busy || !this.state.miner.running) {
+      this._schedule();
       return;
     }
-    
-    if (!this.state.miner.running) {
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = unrefTimer(() => this._poll(), this.pollMs);
-      return;
-    }
-
     this.busy = true;
-    
     const req = http.request({
       hostname: "127.0.0.1",
       port: this.port,
       path: "/",
       method: "GET",
-      timeout: 1500
+      timeout: 1500,
     }, (res) => {
       let data = "";
-      res.on("data", chunk => { data += chunk; });
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => { data += chunk; });
       res.on("end", () => {
         this.busy = false;
         if (!this.running) return;
-        
         try {
-          const json = JSON.parse(data);
-          this._updateState(json);
-        } catch (e) {}
-        
+          this._updateState(JSON.parse(data));
+        } catch {}
         this._schedule();
       });
     });
-
     req.on("error", () => {
       this.busy = false;
-      this._schedule();
+      if (this.running) this._schedule();
     });
-    
     req.on("timeout", () => {
       req.destroy();
     });
-
     req.end();
   }
 
@@ -94,6 +81,21 @@ class ApiManager extends Poller {
         totalCpuHashrate += (cpuHr.total || 0);
         totalGpuHashrate += (gpuHr.total || 0);
 
+        if (algo.hashrate && algo.hashrate.gpu) {
+          for (const [key, val] of Object.entries(algo.hashrate.gpu)) {
+            if (key !== "total") {
+              mining.gpuHashrates[key] = val;
+              const numMatch = key.match(/\d+/);
+              if (numMatch) {
+                const id = numMatch[0];
+                mining.gpuHashrates[`cu_${id}`] = val;
+                mining.gpuHashrates[`cl_${id}`] = val;
+                mining.gpuHashrates[id] = val;
+              }
+            }
+          }
+        }
+
         return {
           id: algo.id ?? idx,
           name: algo.name || `Algo ${idx}`,
@@ -126,17 +128,22 @@ class ApiManager extends Poller {
       });
 
       mining.algorithms = parsedAlgorithms;
-      mining.accepted = totalAccepted;
-      mining.rejected = totalRejected;
-      mining.submitted = totalAccepted + totalRejected;
+      mining.accepted = Math.max(mining.accepted || 0, totalAccepted);
+      mining.rejected = Math.max(mining.rejected || 0, totalRejected);
+      mining.submitted = mining.accepted + mining.rejected;
       mining.hashrateTotal = totalHashrate;
       mining.hashrateCpu = totalCpuHashrate;
       mining.hashrateGpu = totalGpuHashrate;
 
       const primary = parsedAlgorithms[0];
       if (primary && primary.pool) {
-        if (primary.pool.difficulty != null) mining.difficulty = primary.pool.difficulty;
-        if (primary.pool.latency != null) mining.poolLatency = primary.pool.latency;
+        if (primary.pool.difficulty != null && primary.pool.difficulty > 0) mining.difficulty = primary.pool.difficulty;
+        if (primary.pool.latency != null && primary.pool.latency > 0) mining.poolLatency = primary.pool.latency;
+        if (primary.pool.wallet && (!this.state.miner.worker || !this.state.miner.wallet)) {
+          const parsed = parseMinerUser(primary.pool.wallet);
+          if (!this.state.miner.wallet && parsed.wallet) this.state.miner.wallet = parsed.wallet;
+          if (!this.state.miner.worker && parsed.worker) this.state.miner.worker = parsed.worker;
+        }
         if (mining.status !== STATUS.STOPPED && mining.status !== STATUS.STOPPING) {
           mining.status = STATUS.MINING;
         }
@@ -145,7 +152,7 @@ class ApiManager extends Poller {
       changed = true;
     }
 
-    if (Array.isArray(json.cpu_devices) && json.cpu_devices.length > 0) {
+    if (json.total_cpu_workers > 0 && Array.isArray(json.cpu_devices) && json.cpu_devices.length > 0) {
       this.state.cpu = json.cpu_devices.map((cpu, idx) => {
         let cpuHr = 0;
         let threads = {};
@@ -175,14 +182,32 @@ class ApiManager extends Poller {
         };
       });
       changed = true;
+    } else if (this.state.cpu.length > 0) {
+      this.state.cpu = [];
+      changed = true;
     }
 
     if (Array.isArray(json.gpu_devices)) {
       this.state.apiGpuDevices = json.gpu_devices;
+      for (const dev of json.gpu_devices) {
+        if (dev.topology_id) {
+          const pci = normalizePci(dev.topology_id);
+          this.state.mining.pciMap[pci] = dev.id;
+        }
+      }
       changed = true;
     }
 
     if (changed) this._notify();
+  }
+
+  stop() {
+    super.stop();
+    if (this.state.cpu.length > 0 || (this.state.apiGpuDevices && this.state.apiGpuDevices.length > 0)) {
+      this.state.cpu = [];
+      this.state.apiGpuDevices = [];
+      this._notify();
+    }
   }
 }
 

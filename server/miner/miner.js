@@ -1,8 +1,7 @@
-"use strict";
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const net = require("node:net");
 const { spawn, execFile } = require("node:child_process");
 const { parseMinerLine } = require("./parser");
 const { STATUS, LOG, LIMITS } = require("../utils/constants");
@@ -28,17 +27,20 @@ const CLEAN_STATS = Object.freeze({
   rejected: 0,
   difficulty: null,
   lastAcceptedAt: null,
-  hashratesReady: false,
-  expectedWorkers: 0,
-  jsonRejects: 0,
 });
 
 function resolveExe(exe, cwd) {
   if (!exe || containsShellMetachars(exe)) return null;
-  const looksLikePath = exe.includes("/") || exe.includes("\\");
-  const candidate = path.resolve(cwd || ".", exe);
-  if (looksLikePath) return candidate;
-  try { if (fs.statSync(candidate).isFile()) return candidate; } catch {}
+  if (path.isAbsolute(exe)) {
+    try { if (fs.statSync(exe).isFile()) return exe; } catch {}
+  }
+  if (cwd) {
+    const candidate = path.resolve(cwd, exe);
+    try { if (fs.statSync(candidate).isFile()) return candidate; } catch {}
+  }
+  const dashboardRoot = path.resolve(__dirname, "..", "..");
+  const candidateRoot = path.resolve(dashboardRoot, exe);
+  try { if (fs.statSync(candidateRoot).isFile()) return candidateRoot; } catch {}
   return exe;
 }
 
@@ -66,7 +68,6 @@ class MinerManager {
     this._statusRollback = null;
     this._spawning = false;
     this._probe = null;
-    this.state.mining.workerMap = config.DEVICE_SELECTION || null;
   }
 
   _emit() {
@@ -95,6 +96,10 @@ class MinerManager {
     if (error) this.state.miner.lastError = error;
     this._setMining({ status });
     this._resetStats();
+    if (this._logServer) {
+      try { this._logServer.close(); } catch {}
+      this._logServer = null;
+    }
   }
 
   pushLog(text, type = LOG.INFO) {
@@ -214,97 +219,100 @@ class MinerManager {
     }
     const safeArgs = sanitizeArgs(MINER_ARGS);
 
-    const logFilePath = this.config.MINER_LOG_FILE ? (
-      path.isAbsolute(this.config.MINER_LOG_FILE)
-        ? this.config.MINER_LOG_FILE
-        : path.resolve(MINER_CWD, this.config.MINER_LOG_FILE)
-    ) : null;
-    if (logFilePath) {
-      try { fs.unlinkSync(logFilePath); } catch {}
+    if (this._logServer) {
+      this._logServer.close();
+      this._logServer = null;
     }
 
-    try {
-      this.proc = spawn(MINER_EXE, safeArgs, {
-        cwd: MINER_CWD,
-        windowsHide: false,
-        shell: false,
-        detached: false,
-        stdio: FORWARD_CONSOLE ? "inherit" : ["inherit", "pipe", "pipe"],
-      });
-    } catch (err) {
-      this._markDown(STATUS.CRASHED, err.message);
-      this.pushLog(err.message, LOG.ERROR);
+    let pipeName = null;
+    const isWin = process.platform === "win32";
+
+    const doSpawn = () => {
+      if (!this._spawning) return;
+      try {
+        this.proc = spawn(MINER_EXE, safeArgs, {
+          cwd: MINER_CWD,
+          windowsHide: false,
+          shell: false,
+          detached: false,
+          stdio: (FORWARD_CONSOLE && isWin) ? "inherit" : ["inherit", "pipe", "pipe"],
+        });
+      } catch (err) {
+        this._markDown(STATUS.CRASHED, err.message);
+        this.pushLog(err.message, LOG.ERROR);
+        this._emit();
+        if (this._logServer) {
+          this._logServer.close();
+          this._logServer = null;
+        }
+        return;
+      }
+
+      const child = this.proc;
+      try {
+        os.setPriority(child.pid, os.constants.priority.PRIORITY_NORMAL);
+      } catch {}
+
+      this._spawning = false;
+      this.state.miner.running = true;
+      this.state.miner.pid = child.pid;
+      this.state.miner.startedAt = Date.now();
+      this.state.miner.exitCode = null;
+      this.state.miner.signal = null;
+      this._setMining({ status: STATUS.STARTING });
       this._emit();
-      return;
+
+      this._bindStreams(child, FORWARD_CONSOLE && !isWin);
+      this._bindLifecycle(child);
+    };
+
+    if (FORWARD_CONSOLE && isWin) {
+      pipeName = `\\\\.\\pipe\\srbminer_dashboard_${Date.now()}`;
+      for (let i = safeArgs.length - 1; i >= 0; i--) {
+        if (safeArgs[i] === "--log-file" || safeArgs[i] === "--log-file-mode") {
+          safeArgs.splice(i, 2);
+        }
+      }
+      safeArgs.push("--log-file", pipeName);
+      this._logServer = net.createServer((c) => {
+        c.setEncoding("utf8");
+        c.on("error", () => {});
+        const onLine = (line) => {
+          try { parseMinerLine(line, this.state, this._boundPushLog()); }
+          catch { this.state.dirty = true; }
+        };
+        const onFlush = () => this._emit();
+        c.on("data", createStreamReader(onLine, onFlush, () => true, null));
+      });
+      try {
+        this._logServer.listen(pipeName, () => doSpawn());
+        this._logServer.on("error", () => {
+          if (this._spawning) doSpawn();
+        });
+      } catch (err) {
+        doSpawn();
+      }
+    } else {
+      doSpawn();
     }
-
-    const child = this.proc;
-
-    try {
-      os.setPriority(child.pid, os.constants.priority.PRIORITY_NORMAL);
-    } catch (err) {
-      console.error("[dashboard] setPriority failed:", err.message);
-    }
-
-    this._spawning = false;
-    this.state.miner.running = true;
-    this.state.miner.pid = child.pid;
-    this.state.miner.startedAt = Date.now();
-    this.state.miner.exitCode = null;
-    this.state.miner.signal = null;
-    this._setMining({ status: STATUS.STARTING });
-    this._emit();
-
-    this._bindStreams(child, logFilePath);
-    this._bindLifecycle(child);
   }
 
-  _bindStreams(child, logFilePath) {
+  _bindStreams(child, forwardConsole) {
+    if (!child.stdout || !child.stderr) return;
     const onLine = (line) => {
       try { parseMinerLine(line, this.state, this._boundPushLog()); }
-      catch (err) { this.state.dirty = true; }
+      catch { this.state.dirty = true; }
     };
     const onFlush = () => this._emit();
     const alwaysEnabled = () => true;
-    if (child.stdout && child.stderr) {
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", createStreamReader(onLine, onFlush, alwaysEnabled));
-      child.stderr.on("data", createStreamReader(onLine, onFlush, alwaysEnabled));
-      const ignoreErr = () => {};
-      child.stdout.on("error", ignoreErr);
-      child.stderr.on("error", ignoreErr);
-    }
-
-    if (logFilePath) {
-      let logBytes = 0;
-      if (this._logTailTimer) clearInterval(this._logTailTimer);
-      this._logTailTimer = setInterval(() => {
-        if (!this.state.miner.running || this.proc !== child) {
-          clearInterval(this._logTailTimer);
-          this._logTailTimer = null;
-          return;
-        }
-        try {
-          if (fs.existsSync(logFilePath)) {
-            const stat = fs.statSync(logFilePath);
-            if (stat.size > logBytes) {
-              const fd = fs.openSync(logFilePath, "r");
-              const buf = Buffer.alloc(stat.size - logBytes);
-              fs.readSync(fd, buf, 0, buf.length, logBytes);
-              fs.closeSync(fd);
-              logBytes = stat.size;
-              const text = buf.toString("utf8");
-              const lines = text.split(/\r?\n/);
-              for (const l of lines) {
-                if (l.trim()) onLine(l);
-              }
-              onFlush();
-            }
-          }
-        } catch {}
-      }, 250);
-    }
+    const mirror = forwardConsole ? (s) => (c) => { try { s.write(c); } catch {} } : null;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", createStreamReader(onLine, onFlush, alwaysEnabled, mirror ? mirror(process.stdout) : null));
+    child.stderr.on("data", createStreamReader(onLine, onFlush, alwaysEnabled, mirror ? mirror(process.stderr) : null));
+    const ignoreErr = () => {};
+    child.stdout.on("error", ignoreErr);
+    child.stderr.on("error", ignoreErr);
   }
 
   _bindLifecycle(child) {
@@ -374,7 +382,7 @@ class MinerManager {
     }, LIMITS.ACTION_DELAY_MS);
   }
 
-  stop() {
+  stop(options = {}) {
     this._clearScheduledAction();
     this._spawning = false;
     if (!this.proc || !this.state.miner.running) {
@@ -407,9 +415,27 @@ class MinerManager {
           execFile("taskkill.exe", ["/pid", String(pid), "/T", "/F"], { shell: false }, () => {});
         else try { child.kill("SIGKILL"); } catch {}
       };
-      try { child.kill("SIGINT"); } catch {}
+      if (!options || !options.fromSigint) {
+        if (process.platform === "win32") {
+          const psCmd = `$c=@"
+using System;
+using System.Runtime.InteropServices;
+public class K {
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool AttachConsole(uint p);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool FreeConsole();
+  [DllImport("kernel32.dll", SetLastError=true)]
+  public static extern bool GenerateConsoleCtrlEvent(uint e, uint p);
+}
+"@; Add-Type $c; [K]::FreeConsole(); [K]::AttachConsole(${pid}); [K]::GenerateConsoleCtrlEvent(0, 0);`;
+          execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCmd], { windowsHide: true }, () => {});
+        } else {
+          try { child.kill("SIGINT"); } catch {}
+        }
+      }
       this._forceKillTimer = timer(forceKill, this.timeouts.forceKill);
-      let watchdog = timer(() => {
+      const watchdog = timer(() => {
         if (settled) return;
         this.pushLog("Miner did not exit in time; giving up on a clean stop.", LOG.WARN);
         forceKill(); finish();
@@ -429,6 +455,10 @@ class MinerManager {
     this._clearScheduledAction();
     clearTimeout(this._forceKillTimer); this._forceKillTimer = null;
     if (this._probe) { try { this._probe.kill("SIGKILL"); } catch {} this._probe = null; }
+    if (this._logServer) {
+      try { this._logServer.close(); } catch {}
+      this._logServer = null;
+    }
   }
 }
 
