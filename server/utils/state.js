@@ -98,7 +98,7 @@ function createState(wallet = "", maxLogs = 50, worker = null, user = "", algo =
 
 function hashrateForGpu(state, gpu) {
 	const mapped = state.mining.pciMap[gpu.pciBusId];
-	const devIndex = mapped !== undefined ? mapped : gpu.index;
+	const devIndex = gpu.minerId != null ? gpu.minerId : (mapped !== undefined ? mapped : gpu.index);
 	const rates = state.mining.gpuHashrates;
 	const direct = rates[`gpu${devIndex}`] ?? rates[`cu_${devIndex}`] ?? rates[`cl_${devIndex}`] ?? rates[devIndex];
 	if (direct !== undefined) return direct;

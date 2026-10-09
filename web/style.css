@@ -238,9 +238,64 @@ button, input, select, textarea { font-family: inherit; }
 .metric-unit { font-size: var(--fs-unit); font-weight: 500; opacity: 0.62; white-space: nowrap; }
 .metric--card .metric-unit { font-size: 14px; }
 .metric-part { display: inline-flex; align-items: baseline; gap: 4px; }
-.metric-sep { color: var(--text-faint); font-weight: 400; opacity: 0.45; user-select: none; }
+.metric-sep { color: var(--text-primary); font-weight: 600; opacity: 0.85; user-select: none; }
 
-.metric-value.accent-cyan, .metric-part.accent-cyan { color: var(--cyan-bright); }
+.metric-device-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--cyan-bright);
+  background: rgba(var(--cyan-rgb), 0.12);
+  border: 1px solid rgba(var(--cyan-rgb), 0.3);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  width: fit-content;
+}
+
+.hashrate-dual {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+}
+.hashrate-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slot-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.slot-val {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: clamp(16px, 1.8vw, 22px);
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  line-height: 1.15;
+}
+.slot-val .metric-unit {
+  font-size: 11px;
+}
+.hashrate-divider {
+  width: 1px;
+  background: var(--border-strong);
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+.metric-value.accent-cyan, .metric-part.accent-cyan, .slot-val.accent-cyan { color: var(--cyan-bright); }
 .metric-value.accent-green, .metric-part.accent-green { color: var(--green-bright); }
 .metric-value.accent-red, .metric-part.accent-red { color: var(--red-bright); }
 .metric-value.accent-amber, .metric-part.accent-amber { color: var(--amber-bright); }
@@ -682,6 +737,21 @@ button, input, select, textarea { font-family: inherit; }
   .metric-label { font-size: 10.5px; letter-spacing: 0.5px; }
   .metric--tile .metric-value { font-size: 14px; }
   .metric--small .metric-value { font-size: 12px; }
+
+  .hashrate-dual {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .hashrate-divider {
+    width: 100%;
+    height: 1px;
+  }
+  .slot-val {
+    font-size: 16px;
+  }
+  .slot-val .metric-unit {
+    font-size: 11px;
+  }
 
   .identity { margin-top: 6px; }
   .identity-field, .identity-field:first-child { height: 30px; padding: 0 10px; width: 100%; max-width: 100%; box-sizing: border-box; }

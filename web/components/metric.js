@@ -47,6 +47,12 @@ export function createMetric(opts = {}) {
 
 	const refs = { node, label: labelEl, value: valueBox };
 
+	if (opts.indicator) {
+		const indEl = make("div", "metric-indicator");
+		labelEl.after(indEl);
+		refs.indicator = indEl;
+	}
+
 	if (parts) {
 		const isArr = Array.isArray(parts);
 		refs.parts = {};
@@ -101,6 +107,10 @@ export function createMetric(opts = {}) {
 		node,
 		refs,
 		set(next = {}) {
+			if (next.indicator !== undefined && refs.indicator) {
+				text(refs.indicator, next.indicator || "");
+				refs.indicator.style.display = next.indicator ? "" : "none";
+			}
 			if (next.value !== undefined) text(refs.num, next.value);
 			if (next.unit !== undefined && refs.unit) {
 				text(refs.unit, next.unit || "");

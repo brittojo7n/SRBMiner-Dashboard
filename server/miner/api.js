@@ -120,9 +120,11 @@ class ApiManager extends Poller {
 			mining.accepted = Math.max(mining.accepted || 0, totalAcc);
 			mining.rejected = Math.max(mining.rejected || 0, totalRej);
 			mining.submitted = mining.accepted + mining.rejected;
-			mining.hashrateTotal = totalHr;
 			mining.hashrateCpu = totalCpuHr;
 			mining.hashrateGpu = totalGpuHr;
+			mining.hashrateTotal = (totalCpuHr > 0 || totalGpuHr > 0)
+				? (totalCpuHr + totalGpuHr)
+				: totalHr;
 
 			const primary = mining.algorithms[0];
 			if (primary && primary.pool) {
@@ -179,6 +181,33 @@ class ApiManager extends Poller {
 				if (dev.topology_id) {
 					this.state.mining.pciMap[normalizePci(dev.topology_id)] = dev.id;
 				}
+			}
+			if (!this.state.gpu || this.state.gpu.length === 0 || this.state.gpu.every((g) => g.fromApiOnly)) {
+				const fallbackGpus = [];
+				for (let i = 0; i < json.gpu_devices.length; i++) {
+					const apiGpu = json.gpu_devices[i];
+					const minerGpuId = apiGpu.id != null ? apiGpu.id : i;
+					const name = apiGpu.model || `GPU ${minerGpuId}`;
+					const temperatureC = apiGpu.temperature || null;
+					const powerW = apiGpu.asic_power ?? apiGpu.power_usage ?? null;
+					const coreMHz = apiGpu.core_clock || null;
+					const memoryMHz = apiGpu.memory_clock || null;
+					const pciBusId = apiGpu.topology_id ? normalizePci(apiGpu.topology_id) : "";
+					fallbackGpus.push({
+						index: minerGpuId,
+						minerId: minerGpuId,
+						name,
+						temperatureC,
+						powerW,
+						coreMHz,
+						memoryMHz,
+						pciBusId,
+						fromApiOnly: true,
+					});
+				}
+				fallbackGpus.sort((a, b) => a.index - b.index);
+				this.state.gpu = fallbackGpus;
+				if (this.state.gpuError) this.state.gpuError = "";
 			}
 			changed = true;
 		}

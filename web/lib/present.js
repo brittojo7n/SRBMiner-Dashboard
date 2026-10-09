@@ -48,9 +48,19 @@ export function formatEfficiency(eff) {
 }
 export function presentSnapshot(snapshot, options = {}) {
 	const m = snapshot.mining;
+	const hasCpu = Number.isFinite(m.hashrateCpu) && m.hashrateCpu > 0;
+	const hasGpu = Number.isFinite(m.hashrateGpu) && m.hashrateGpu > 0;
+	const totalHz = (hasCpu || hasGpu)
+		? ((m.hashrateCpu || 0) + (m.hashrateGpu || 0))
+		: (m.hashrateTotal || (m.hashrateKHs ? m.hashrateKHs * 1000 : 0));
+
 	return {
 		status: effectiveStatus(snapshot, options.pendingStatus || null),
-		hashrate: formatHashrate(m.hashrateTotal || (m.hashrateKHs ? m.hashrateKHs * 1000 : 0)),
+		hashrate: formatHashrate(totalHz),
+		hashrateCpu: formatHashrate(m.hashrateCpu || 0),
+		hashrateGpu: formatHashrate(m.hashrateGpu || 0),
+		hasCpuMining: hasCpu,
+		hasGpuMining: hasGpu,
 		accepted: m.submitted === 0 ? DASH : `${m.accepted} / ${m.submitted}`,
 		acceptedCount: String(m.accepted ?? 0),
 		ratio: snapshot.acceptedRatio == null ? DASH : `${num(snapshot.acceptedRatio, 2)}%`,
@@ -75,16 +85,27 @@ export function presentGpu(gpu, opts = {}) {
 	const levels = opts.tempLevels || { warn: 72, hot: 80 };
 	const eff = gpu.hashrate > 0 && gpu.powerW > 0 ? gpu.hashrate / gpu.powerW : null;
 	const effParsed = formatEfficiency(eff);
-	const util = gpu.utilizationPct == null ? 0 : Math.max(0, Math.min(100, gpu.utilizationPct));
+	const hasUtil = gpu.utilizationPct != null;
+	const util = hasUtil ? Math.max(0, Math.min(100, gpu.utilizationPct)) : 0;
 	return {
 		name: `GPU ${gpu.index} \u2022 ${gpu.name || "Unknown"}`,
-		pstate: gpu.pstate || DASH,
+		pstate: gpu.pstate || null,
+		hasPstate: gpu.pstate != null && gpu.pstate !== "",
 		temp: gpu.temperatureC != null ? `${num(gpu.temperatureC, 0)}\u00b0C` : DASH,
 		tempStatus: tempStatus(gpu.temperatureC, levels),
-		power: num(gpu.powerW, 1), core: num(gpu.coreMHz, 0), mem: num(gpu.memoryMHz, 0),
-		vramUsed: num(gpu.memoryUsedMB, 0), vramTotal: num(gpu.memoryTotalMB, 0),
+		power: num(gpu.powerW, 1),
+		core: num(gpu.coreMHz, 0),
+		mem: num(gpu.memoryMHz, 0),
+		hasVram: gpu.memoryTotalMB != null && gpu.memoryTotalMB > 0,
+		vramUsed: num(gpu.memoryUsedMB, 0),
+		vramTotal: num(gpu.memoryTotalMB, 0),
 		hashrate: formatHashrate(gpu.hashrate),
-		eff: effParsed.value, effUnit: effParsed.unit, effFormatted: effParsed.text,
-		util: num(gpu.utilizationPct, 0), barScale: util / 100,
+		eff: effParsed.value,
+		effUnit: effParsed.unit,
+		effFormatted: effParsed.text,
+		hasUtil,
+		util: hasUtil ? num(gpu.utilizationPct, 0) : DASH,
+		barScale: util / 100,
+		fromApiOnly: !!gpu.fromApiOnly,
 	};
 }

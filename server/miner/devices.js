@@ -6,7 +6,7 @@ const RX_INLINE = /index:\s*(\d+).*?pcieid:\s*([0-9a-fA-F:.]+)/i;
 const RX_INDEX = /deviceindex:\s*(\d+)/i;
 const RX_PCI_LINE = /pcieid:\s*([0-9a-fA-F:.]+)/i;
 const RX_UNAVAILABLE = /not\s*avilable/i;
-const RX_SRB_DEV = /GPU(\d+)\s+\[[^\]]+\]\[[^\]]+\]\s+\[([0-9a-fA-F:.]+)\]/i;
+const RX_SRB_DEV = /GPU(\d+)\s+\[[^\]]+\](?:\[[^\]]+\])?\s+\[([0-9a-fA-F:.]+)\]/i;
 
 const stripAnsi = (line) => {
 	const s = String(line);

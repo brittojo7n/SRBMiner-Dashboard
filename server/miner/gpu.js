@@ -38,13 +38,13 @@ class GpuManager extends Poller {
 			if (!err && stdout && String(stdout).trim()) {
 				const lines = String(stdout).trim().split("\n");
 				this.state.gpuError = "";
-				let validCount = 0;
+				const smiGpus = [];
 				for (let i = 0; i < lines.length; i++) {
 					const line = lines[i].trim();
 					if (!line) continue;
 					const p = line.split(",");
 					const pciBusId = normalizePci((p[9] || "").trim());
-					const name = (p[0] || "").trim() || `GPU ${validCount}`;
+					const name = (p[0] || "").trim() || `GPU ${smiGpus.length}`;
 					const temperatureC = toNumber(p[1]);
 					const powerW = toNumber(p[2]);
 					const utilizationPct = toNumber(p[3]);
@@ -53,17 +53,71 @@ class GpuManager extends Poller {
 					const memoryUsedMB = toNumber(p[6]);
 					const memoryTotalMB = toNumber(p[7]);
 					const pstate = (p[8] || "").trim() || null;
-					if (validCount < this.state.gpu.length) {
-						const g = this.state.gpu[validCount];
-						g.name = name; g.temperatureC = temperatureC; g.powerW = powerW; g.utilizationPct = utilizationPct;
-						g.coreMHz = coreMHz; g.memoryMHz = memoryMHz; g.memoryUsedMB = memoryUsedMB; g.memoryTotalMB = memoryTotalMB;
-						g.pstate = pstate; g.pciBusId = pciBusId;
-					} else {
-						this.state.gpu.push({ index: validCount, name, temperatureC, powerW, utilizationPct, coreMHz, memoryMHz, memoryUsedMB, memoryTotalMB, pstate, pciBusId });
-					}
-					validCount++;
+					smiGpus.push({
+						index: smiGpus.length,
+						name,
+						temperatureC,
+						powerW,
+						utilizationPct,
+						coreMHz,
+						memoryMHz,
+						memoryUsedMB,
+						memoryTotalMB,
+						pstate,
+						pciBusId,
+					});
 				}
-				if (this.state.gpu.length > validCount) this.state.gpu.length = validCount;
+
+				const pciMap = this.state.mining.pciMap || {};
+				const apiDevs = this.state.apiGpuDevices || [];
+				let orderedGpus = [];
+
+				if (apiDevs.length > 0) {
+					const usedSmi = new Set();
+					for (let i = 0; i < apiDevs.length; i++) {
+						const dev = apiDevs[i];
+						const devPci = dev.topology_id ? normalizePci(dev.topology_id) : "";
+						const smiMatch = smiGpus.find((g, idx) => !usedSmi.has(idx) && (devPci ? g.pciBusId === devPci : g.index === dev.id));
+						const minerGpuId = dev.id != null ? dev.id : i;
+						if (smiMatch) {
+							usedSmi.add(smiGpus.indexOf(smiMatch));
+							orderedGpus.push({
+								...smiMatch,
+								index: minerGpuId,
+								minerId: minerGpuId,
+							});
+						} else {
+							orderedGpus.push({
+								index: minerGpuId,
+								minerId: minerGpuId,
+								name: dev.model || `GPU ${minerGpuId}`,
+								temperatureC: dev.temperature || null,
+								powerW: dev.asic_power ?? dev.power_usage ?? null,
+								coreMHz: dev.core_clock || null,
+								memoryMHz: dev.memory_clock || null,
+								pciBusId: devPci,
+							});
+						}
+					}
+					for (let i = 0; i < smiGpus.length; i++) {
+						if (!usedSmi.has(i)) {
+							const g = smiGpus[i];
+							const mappedId = pciMap[g.pciBusId];
+							const minerId = mappedId != null ? Number(mappedId) : g.index;
+							orderedGpus.push({ ...g, index: minerId, minerId });
+						}
+					}
+				} else {
+					orderedGpus = smiGpus.map((g) => {
+						const mappedId = pciMap[g.pciBusId];
+						const minerId = mappedId != null ? Number(mappedId) : g.index;
+						return { ...g, index: minerId, minerId };
+					});
+				}
+
+				orderedGpus.sort((a, b) => a.index - b.index);
+
+				this.state.gpu = orderedGpus;
 				this._notify();
 			} else {
 				if (err) {
@@ -73,27 +127,30 @@ class GpuManager extends Poller {
 				const apiDevs = this.state.apiGpuDevices;
 				if (apiDevs && apiDevs.length > 0) {
 					this.state.gpuError = "";
-					let validCount = 0;
+					const fallbackGpus = [];
 					for (let i = 0; i < apiDevs.length; i++) {
 						const apiGpu = apiDevs[i];
-						const name = apiGpu.model || `GPU ${apiGpu.id}`;
+						const minerGpuId = apiGpu.id != null ? apiGpu.id : i;
+						const name = apiGpu.model || `GPU ${minerGpuId}`;
 						const temperatureC = apiGpu.temperature || null;
 						const powerW = apiGpu.asic_power ?? apiGpu.power_usage ?? null;
 						const coreMHz = apiGpu.core_clock || null;
 						const memoryMHz = apiGpu.memory_clock || null;
 						const pciBusId = apiGpu.topology_id ? normalizePci(apiGpu.topology_id) : "";
-						if (validCount < this.state.gpu.length) {
-							const g = this.state.gpu[validCount];
-							g.name = name; g.temperatureC = temperatureC; g.powerW = powerW;
-							if (coreMHz != null) g.coreMHz = coreMHz;
-							if (memoryMHz != null) g.memoryMHz = memoryMHz;
-							if (pciBusId) g.pciBusId = pciBusId;
-						} else {
-							this.state.gpu.push({ index: validCount, name, temperatureC, powerW, coreMHz, memoryMHz, pciBusId });
-						}
-						validCount++;
+						fallbackGpus.push({
+							index: minerGpuId,
+							minerId: minerGpuId,
+							name,
+							temperatureC,
+							powerW,
+							coreMHz,
+							memoryMHz,
+							pciBusId,
+							fromApiOnly: true,
+						});
 					}
-					if (this.state.gpu.length > validCount) this.state.gpu.length = validCount;
+					fallbackGpus.sort((a, b) => a.index - b.index);
+					this.state.gpu = fallbackGpus;
 				} else if (this.state.gpu.length > 0) {
 					this.state.gpu.length = 0;
 				}

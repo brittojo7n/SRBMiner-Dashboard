@@ -6,6 +6,7 @@ import * as toast from "../components/toast.js";
 import * as gpuView from "../components/gpu.js";
 import * as cpuView from "../components/cpu.js";
 import { createMetric } from "../components/metric.js";
+import { createHashrateMetric } from "../components/hashrate.js";
 import { createIdentity } from "../components/identity.js";
 import { createConsole } from "../components/console.js";
 import { createConnection } from "./connection.js";
@@ -44,7 +45,7 @@ function buildConfirmContent() {
 
 function buildSummary(host) {
 	const cards = {
-		hashrate: createMetric({ label: "Total Hashrate", value: DASH, accent: "cyan", surface: 1 }),
+		hashrate: createHashrateMetric({ label: "Total Hashrate", surface: 1 }),
 		accepted: createMetric({ label: "Shares", value: DASH, accent: "green", surface: 1 }),
 		ratio: createMetric({ label: "Acceptance Ratio", value: DASH, surface: 1 }),
 		uptime: createMetric({ label: "Uptime", value: DASH, surface: 1 }),
@@ -183,7 +184,13 @@ class Dashboard {
 		this.announce(display.status);
 		text(this.els.host, display.host);
 		this.applyChrome(display.status, !!this.pendingStatus);
-		this.summary.hashrate.set({ value: display.hashrate });
+		this.summary.hashrate.set({
+			hashrate: display.hashrate,
+			hashrateGpu: display.hashrateGpu,
+			hashrateCpu: display.hashrateCpu,
+			hasGpuMining: display.hasGpuMining,
+			hasCpuMining: display.hasCpuMining,
+		});
 		this.summary.accepted.set({ value: display.accepted });
 		this.summary.ratio.set({ value: display.ratio });
 		this.mining.shares.set({ parts: { accepted: display.acceptedCount, rejected: display.rejected } });

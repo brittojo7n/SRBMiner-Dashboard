@@ -138,6 +138,13 @@ export function render(container, gpus, gpuError, spec = DEFAULT_SPEC) {
 		for (let j = 0; j < spec.metrics.length; j++) {
 			const m = spec.metrics[j];
 			const metric = r[m.key];
+
+			if (m.key === "pstate") {
+				metric.node.style.display = v.hasPstate ? "" : "none";
+			} else if (m.key === "vram") {
+				metric.node.style.display = v.hasVram ? "" : "none";
+			}
+
 			if (m.parts) {
 				metric.set({ parts: { used: v[m.parts[0]], total: v[m.parts[1]] } });
 			} else if (m.key === "eff") {
@@ -145,10 +152,16 @@ export function render(container, gpus, gpuError, spec = DEFAULT_SPEC) {
 			} else if (m.status) {
 				metric.set({ value: v[m.key], status: v.tempStatus });
 			} else {
-				metric.set({ value: v[m.key] });
+				metric.set({ value: v[m.key] || DASH });
 			}
 		}
-		r.util.set({ value: v.util });
-		style(r.util.refs.bar, "transform", `scaleX(${v.barScale})`);
+
+		if (r.util && r.util.node) {
+			r.util.node.style.display = v.hasUtil ? "" : "none";
+			if (v.hasUtil) {
+				r.util.set({ value: v.util });
+				style(r.util.refs.bar, "transform", `scaleX(${v.barScale})`);
+			}
+		}
 	}
 }
