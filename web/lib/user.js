@@ -35,4 +35,9 @@ function minerUserSource(miner = {}) {
   return miner.wallet || "";
 }
 
-export { parseMinerUser, formatMinerUser, workerFromPass, resolveIdentity, minerUserSource };
+function cleanPoolAddress(raw) {
+  if (raw == null) return "";
+  return String(raw).trim().replace(/^(?:stratum(?:\d+)?(?:\+[a-z0-9]+)?|ssl|tcp):\/\//i, "");
+}
+
+export { parseMinerUser, formatMinerUser, workerFromPass, resolveIdentity, minerUserSource, cleanPoolAddress };

@@ -2,7 +2,7 @@ const http = require("node:http");
 const { Poller } = require("../utils/timers");
 const { STATUS } = require("../utils/constants");
 const { normalizePci } = require("./devices");
-const { parseMinerUser } = require("../../web/lib/user");
+const { parseMinerUser, cleanPoolAddress } = require("../../web/lib/user");
 
 class ApiManager extends Poller {
   constructor({ state, port, pollMs = 2000, onUpdate } = {}) {
@@ -100,7 +100,7 @@ class ApiManager extends Poller {
           id: algo.id ?? idx,
           name: algo.name || `Algo ${idx}`,
           pool: {
-            address: pool.pool || "",
+            address: cleanPoolAddress(pool.pool || ""),
             wallet: pool.wallet || "",
             difficulty: pool.difficulty ?? null,
             latency: pool.latency ?? null,

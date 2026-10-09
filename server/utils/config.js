@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { resolveIdentity } = require("../../web/lib/user");
+const { resolveIdentity, cleanPoolAddress } = require("../../web/lib/user");
 const { parseMinerArgs } = require("./args");
 
 const GPU_POLL_MS = 5000;
@@ -72,7 +72,7 @@ function buildConfig(env = process.env, opts = {}) {
   if (!flags.worker && explicitWorker) flags.worker = explicitWorker;
   const identity = resolveIdentity(flags);
   const ALGO = flags.algo || "";
-  const POOL = flags.pool || "";
+  const POOL = cleanPoolAddress(flags.pool || "");
 
   if (!MINER_ARGS.includes("--api-enable")) {
     MINER_ARGS.push("--api-enable");

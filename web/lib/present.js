@@ -1,3 +1,5 @@
+import { cleanPoolAddress } from "./user.js";
+
 export const DASH = "\u2014";
 const pad = (n) => String(n).padStart(2, "0");
 export const num = (v, d = 1) => v == null || !Number.isFinite(v) ? DASH : Number(v).toFixed(d);
@@ -73,9 +75,11 @@ export function presentSnapshot(snapshot, options = {}) {
     algo: (m.algorithms && m.algorithms.length > 0)
       ? m.algorithms.map((a) => a.name).join(", ")
       : (snapshot.miner.algo || ""),
-    pool: (m.algorithms && m.algorithms[0] && m.algorithms[0].pool && m.algorithms[0].pool.address)
-      ? m.algorithms[0].pool.address
-      : (snapshot.miner.pool || ""),
+    pool: cleanPoolAddress(
+      (m.algorithms && m.algorithms[0] && m.algorithms[0].pool && m.algorithms[0].pool.address)
+        ? m.algorithms[0].pool.address
+        : (snapshot.miner.pool || "")
+    ),
     host: snapshot.host.hostname || "",
   };
 }
