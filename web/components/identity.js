@@ -60,7 +60,8 @@ function attachCopy(targetField) {
       mark(true);
       clearTimeout(timer);
       timer = setTimeout(() => mark(false), 1600);
-    } catch {
+    } catch (err) {
+      console.warn("[dashboard] copy wallet address failed:", err.message);
       mark(false);
     }
   });
@@ -76,7 +77,6 @@ function attachCopy(targetField) {
 export function createIdentity() {
   const node = make("div", "identity");
 
-  // Single-algo fields
   const algo = field("Algo");
   algo.row.hidden = true;
   const pool = field("Pool");
@@ -86,7 +86,6 @@ export function createIdentity() {
   const worker = field("Worker");
   worker.row.hidden = true;
 
-  // Dual-mining dedicated rows (Algo 1 & Algo 2)
   const dualAlgo1 = field("Algo 1");
   const dualWallet1 = field("Wallet 1");
   const dualCopy1 = attachCopy(dualWallet1);
@@ -120,11 +119,9 @@ export function createIdentity() {
       const isDual = algos.length >= 2;
 
       if (isDual) {
-        // Hide single-algo layout
         algo.row.hidden = true;
         wallet.row.hidden = true;
 
-        // Show dual-algo layout in order: Algo 1, Wallet 1, Algo 2, Wallet 2
         dualAlgo1.row.hidden = false;
         dualWallet1.row.hidden = false;
         dualAlgo2.row.hidden = false;
@@ -150,7 +147,6 @@ export function createIdentity() {
         dualWallet2.value.title = w2;
         dualCopy2.setAddress(w2);
 
-        // Optional worker / pool display if available
         const cleanedPool = cleanPoolAddress(next.pool);
         if (cleanedPool) {
           text(pool.value, cleanedPool);
@@ -169,7 +165,6 @@ export function createIdentity() {
         return this;
       }
 
-      // Single-algo layout
       dualAlgo1.row.hidden = true;
       dualWallet1.row.hidden = true;
       dualAlgo2.row.hidden = true;

@@ -1,6 +1,6 @@
 import { make, text, style } from "../lib/dom.js";
 import { createMetric } from "./metric.js";
-import { DASH, presentGpu, formatHashrate } from "../lib/present.js";
+import { DASH, presentGpu } from "../lib/present.js";
 
 const COUNT_KEY = "vmd:gpuCount";
 
@@ -26,7 +26,8 @@ function knownGpuCount() {
   try {
     const n = Number.parseInt(localStorage.getItem(COUNT_KEY), 10);
     return Number.isInteger(n) && n >= 1 && n <= 8 ? n : 1;
-  } catch {
+  } catch (err) {
+    console.warn("[dashboard] reading cached GPU count warning:", err.message);
     return 1;
   }
 }
@@ -34,7 +35,9 @@ function rememberGpuCount(n) {
   try {
     if (Number.isInteger(n) && n >= 1 && n <= 8)
       localStorage.setItem(COUNT_KEY, String(n));
-  } catch {}
+  } catch (err) {
+    console.warn("[dashboard] saving GPU count warning:", err.message);
+  }
 }
 
 function buildCard(spec = DEFAULT_SPEC) {

@@ -38,7 +38,9 @@ function loadEnvFile(envPath, env = process.env) {
     for (const key of Object.keys(parsed)) {
       if (env[key] === undefined) env[key] = parsed[key];
     }
-  } catch {}
+  } catch (err) {
+    console.warn(`[dashboard] warning: reading env file "${target}" failed:`, err.message);
+  }
   return env;
 }
 

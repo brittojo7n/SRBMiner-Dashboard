@@ -74,7 +74,7 @@ class MinerManager {
     if (typeof this.onUpdate === "function") {
       try {
         this.onUpdate();
-      } catch (err) {}
+      } catch {}
     }
   }
 
@@ -97,7 +97,11 @@ class MinerManager {
     this._setMining({ status });
     this._resetStats();
     if (this._logServer) {
-      try { this._logServer.close(); } catch {}
+      try {
+        this._logServer.close();
+      } catch (err) {
+        console.warn("[dashboard] closing log server warning:", err.message);
+      }
       this._logServer = null;
     }
   }
@@ -251,7 +255,9 @@ class MinerManager {
       const child = this.proc;
       try {
         os.setPriority(child.pid, os.constants.priority.PRIORITY_NORMAL);
-      } catch {}
+      } catch (err) {
+        console.warn("[dashboard] failed to set miner process priority:", err.message);
+      }
 
       this._spawning = false;
       this.state.miner.running = true;
@@ -276,20 +282,28 @@ class MinerManager {
       safeArgs.push("--log-file", pipeName);
       this._logServer = net.createServer((c) => {
         c.setEncoding("utf8");
-        c.on("error", () => {});
+        c.on("error", (err) => {
+          console.warn("[dashboard] pipe connection warning:", err.message);
+        });
         const onLine = (line) => {
-          try { parseMinerLine(line, this.state, this._boundPushLog()); }
-          catch { this.state.dirty = true; }
+          try {
+            parseMinerLine(line, this.state, this._boundPushLog());
+          } catch (err) {
+            console.warn("[dashboard] parse miner log line warning:", err.message);
+            this.state.dirty = true;
+          }
         };
         const onFlush = () => this._emit();
         c.on("data", createStreamReader(onLine, onFlush, () => true, null));
       });
       try {
         this._logServer.listen(pipeName, () => doSpawn());
-        this._logServer.on("error", () => {
+        this._logServer.on("error", (err) => {
+          console.warn("[dashboard] log server pipe error:", err.message);
           if (this._spawning) doSpawn();
         });
       } catch (err) {
+        console.warn("[dashboard] pipe listen error:", err.message);
         doSpawn();
       }
     } else {
@@ -300,19 +314,32 @@ class MinerManager {
   _bindStreams(child, forwardConsole) {
     if (!child.stdout || !child.stderr) return;
     const onLine = (line) => {
-      try { parseMinerLine(line, this.state, this._boundPushLog()); }
-      catch { this.state.dirty = true; }
+      try {
+        parseMinerLine(line, this.state, this._boundPushLog());
+      } catch (err) {
+        console.warn("[dashboard] parse miner line warning:", err.message);
+        this.state.dirty = true;
+      }
     };
     const onFlush = () => this._emit();
     const alwaysEnabled = () => true;
-    const mirror = forwardConsole ? (s) => (c) => { try { s.write(c); } catch {} } : null;
+    const mirror = forwardConsole ? (s) => (c) => {
+      try {
+        s.write(c);
+      } catch (err) {
+        console.warn("[dashboard] forward console write warning:", err.message);
+      }
+    } : null;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", createStreamReader(onLine, onFlush, alwaysEnabled, mirror ? mirror(process.stdout) : null));
     child.stderr.on("data", createStreamReader(onLine, onFlush, alwaysEnabled, mirror ? mirror(process.stderr) : null));
-    const ignoreErr = () => {};
-    child.stdout.on("error", ignoreErr);
-    child.stderr.on("error", ignoreErr);
+    child.stdout.on("error", (err) => {
+      console.warn("[dashboard] miner stdout warning:", err.message);
+    });
+    child.stderr.on("error", (err) => {
+      console.warn("[dashboard] miner stderr warning:", err.message);
+    });
   }
 
   _bindLifecycle(child) {
@@ -363,7 +390,9 @@ class MinerManager {
   }
 
   requestAction(action) {
-    if (!Object.prototype.hasOwnProperty.call(ACTIONS, action)) return;
+    if (!Object.prototype.hasOwnProperty.call(ACTIONS, action)) {
+      throw new Error(`Unsupported miner action "${action}". Valid actions are: ${Object.keys(ACTIONS).join(", ")}.`);
+    }
     if (this._pendingAction === action) return;
     const idle = !this.state.miner.running && !this.proc && this._pendingAction !== "start";
     if (action === "start" && this._alive) return this._clearScheduledAction();
@@ -411,9 +440,17 @@ class MinerManager {
       child.once("exit", finish);
       const forceKill = () => {
         if (child.exitCode !== null || child.signalCode !== null) return;
-        if (process.platform === "win32")
-          execFile("taskkill.exe", ["/pid", String(pid), "/T", "/F"], { shell: false }, () => {});
-        else try { child.kill("SIGKILL"); } catch {}
+        if (process.platform === "win32") {
+          execFile("taskkill.exe", ["/pid", String(pid), "/T", "/F"], { shell: false }, (err) => {
+            if (err) console.warn("[dashboard] taskkill notice:", err.message);
+          });
+        } else {
+          try {
+            child.kill("SIGKILL");
+          } catch (err) {
+            console.warn("[dashboard] SIGKILL warning:", err.message);
+          }
+        }
       };
       if (!options || !options.fromSigint) {
         if (process.platform === "win32") {
@@ -429,9 +466,15 @@ public class K {
   public static extern bool GenerateConsoleCtrlEvent(uint e, uint p);
 }
 "@; Add-Type $c; [K]::FreeConsole(); [K]::AttachConsole(${pid}); [K]::GenerateConsoleCtrlEvent(0, 0);`;
-          execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCmd], { windowsHide: true }, () => {});
+          execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCmd], { windowsHide: true }, (err) => {
+            if (err) console.warn("[dashboard] graceful console event notice:", err.message);
+          });
         } else {
-          try { child.kill("SIGINT"); } catch {}
+          try {
+            child.kill("SIGINT");
+          } catch (err) {
+            console.warn("[dashboard] SIGINT warning:", err.message);
+          }
         }
       }
       this._forceKillTimer = timer(forceKill, this.timeouts.forceKill);
@@ -453,10 +496,22 @@ public class K {
 
   dispose() {
     this._clearScheduledAction();
-    clearTimeout(this._forceKillTimer); this._forceKillTimer = null;
-    if (this._probe) { try { this._probe.kill("SIGKILL"); } catch {} this._probe = null; }
+    clearTimeout(this._forceKillTimer);
+    this._forceKillTimer = null;
+    if (this._probe) {
+      try {
+        this._probe.kill("SIGKILL");
+      } catch (err) {
+        console.warn("[dashboard] probe kill warning:", err.message);
+      }
+      this._probe = null;
+    }
     if (this._logServer) {
-      try { this._logServer.close(); } catch {}
+      try {
+        this._logServer.close();
+      } catch (err) {
+        console.warn("[dashboard] log server close warning:", err.message);
+      }
       this._logServer = null;
     }
   }

@@ -32,15 +32,23 @@ class ApiManager extends Poller {
         if (!this.running) return;
         try {
           this._updateState(JSON.parse(data));
-        } catch {}
+        } catch (err) {
+          console.warn("[dashboard] miner API response parse warning:", err.message);
+        }
         this._schedule();
       });
     });
-    req.on("error", () => {
+    req.on("error", (err) => {
       this.busy = false;
-      if (this.running) this._schedule();
+      if (this.running) {
+        if (err.code !== "ECONNREFUSED") {
+          console.warn("[dashboard] miner API poll notice:", err.message);
+        }
+        this._schedule();
+      }
     });
     req.on("timeout", () => {
+      console.warn("[dashboard] miner API poll request timed out.");
       req.destroy();
     });
     req.end();

@@ -12,7 +12,11 @@ class Poller {
   _notify() {
     this.state.dirty = true;
     if (typeof this.onUpdate === "function") {
-      try { this.onUpdate(); } catch (err) {}
+      try {
+        this.onUpdate();
+      } catch (err) {
+        console.error("[dashboard] poller update callback error:", err.message);
+      }
     }
   }
   start() {

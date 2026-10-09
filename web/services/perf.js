@@ -24,7 +24,11 @@ function createPerfGate(env) {
     self.started = true;
     if (media("(prefers-reduced-motion: reduce)") || media("(update: slow)")) { lockLite("reduced motion"); return; }
     let locked = false;
-    try { locked = storage && storage.get(LOCK_KEY) === "1"; } catch {}
+    try {
+      locked = storage && storage.get(LOCK_KEY) === "1";
+    } catch (err) {
+      console.warn("[dashboard] reading perf gate lock warning:", err.message);
+    }
     if (locked) { lockLite("session lock"); return; }
     probe();
   }
@@ -38,7 +42,13 @@ function initBrowserGate() {
     remove(key) { window.sessionStorage.removeItem(key); },
   };
   let gateApi = null;
-  try { gateApi = createPerfGate({ root, media, storage }); gateApi.start(); } catch { gateApi = null; }
+  try {
+    gateApi = createPerfGate({ root, media, storage });
+    gateApi.start();
+  } catch (err) {
+    console.warn("[dashboard] perf gate initialization warning:", err.message);
+    gateApi = null;
+  }
   if (typeof window !== "undefined") window.__vmPerf = gateApi;
 }
 

@@ -79,6 +79,7 @@ class Dashboard {
       dot: el("dot"), status: el("status"), host: el("host"), btnAction: el("btnAction"),
       btnRestart: el("btnRestart"), error: el("error"), gpus: el("gpus"), cpus: el("cpus"),
       localTime: el("localTime"), btnAutoScroll: el("btnAutoScroll"), refresh: el("btnRefresh"),
+      gpuSection: el("gpuSection"),
     };
     this.summary = buildSummary(el("summary"));
     this.identity = createIdentity();
@@ -180,7 +181,7 @@ class Dashboard {
     this.accepted = snapshot.mining.accepted;
     this.tick();
     this.startClock();
-    const display = presentSnapshot(snapshot, { now: this.serverNow, pendingStatus: this.pendingStatus });
+    const display = presentSnapshot(snapshot, { pendingStatus: this.pendingStatus });
     this.announce(display.status);
     text(this.els.host, display.host);
     this.applyChrome(display.status, !!this.pendingStatus);
@@ -228,12 +229,11 @@ class Dashboard {
       this.lastGpuError = null;
     }
     cpuView.render(this.els.cpus, snapshot.cpu);
-    const gpuSection = document.getElementById("gpuSection");
     if (snapshot.gpu && snapshot.gpu.length > 0) {
-      if (gpuSection) gpuSection.style.display = "block";
+      if (this.els.gpuSection) this.els.gpuSection.style.display = "block";
       gpuView.render(this.els.gpus, snapshot.gpu, snapshot.gpuError);
     } else {
-      if (gpuSection) gpuSection.style.display = "none";
+      if (this.els.gpuSection) this.els.gpuSection.style.display = "none";
       gpuView.render(this.els.gpus, [], snapshot.gpuError);
     }
   }
@@ -270,12 +270,23 @@ class Dashboard {
       if (res.status === 429) {
         this.auth.err.textContent = "Too many attempts. Please wait a moment and try again.";
         toast.warn("Too Many Requests", "Too many failed attempts. Please wait before trying again.", "rate-limit-login");
-      } else {
+      } else if (res.status === 401) {
         this.auth.err.textContent = "Invalid passphrase";
+      } else {
+        let msg = `Login failed (HTTP ${res.status})`;
+        try {
+          const data = await res.json();
+          if (data?.message) msg = data.message;
+        } catch (e) {
+          console.warn("[dashboard] parse login error response warning:", e.message);
+        }
+        this.auth.err.textContent = msg;
+        toast.error("Login Failed", msg, "login-error");
       }
     } catch (err) {
-      console.error("[dashboard] login failed:", err.message);
-      this.auth.err.textContent = "Invalid passphrase";
+      console.error("[dashboard] login network error:", err.message);
+      this.auth.err.textContent = "Connection failed. Could not reach server.";
+      toast.error("Connection Failed", `Could not reach dashboard host: ${err.message}`, "login-network-error");
     }
     this.auth.err.style.display = "block";
   }
@@ -298,24 +309,34 @@ class Dashboard {
         if (res.status === 429) {
           let seconds = 5;
           try {
-            const data = await res.clone().json();
-            if (Number.isFinite(data.retryAfterSeconds)) seconds = data.retryAfterSeconds;
-          } catch {}
+            const data = await res.json();
+            if (Number.isFinite(data?.retryAfterSeconds)) seconds = data.retryAfterSeconds;
+          } catch (e) {
+            console.warn("[dashboard] parse rate limit response warning:", e.message);
+          }
           toast.warn("Too Many Requests", `Miner controls are rate limited. Please wait ${seconds} second${seconds === 1 ? "" : "s"} before trying again.`, "rate-limit-action");
         } else {
-          toast.error("Action Failed", `The dashboard rejected the request (HTTP ${res.status}).`, "action-failed");
+          let detail = `The dashboard rejected the request (HTTP ${res.status}).`;
+          try {
+            const data = await res.json();
+            if (data?.error || data?.message) detail = data.message || data.error;
+          } catch (e) {
+            console.warn("[dashboard] parse action error response warning:", e.message);
+          }
+          toast.error("Action Failed", detail, "action-failed");
         }
       }
     } catch (err) {
-      console.error("[dashboard] action failed:", err.message);
+      console.error("[dashboard] action request error:", err.message);
       toast.dismiss(`miner-${action}`);
-      toast.error("Action Failed", "Could not reach the dashboard host. Please try again.", "action-failed");
+      toast.error("Action Failed", `Could not reach dashboard host: ${err.message}`, "action-failed");
     }
     this.pendingStatus = null;
   }
 
-  promptAction(action, label) {
+  promptAction(action, customLabel) {
     if (this.pendingStatus) return;
+    const label = customLabel || ACTION_META[action]?.label || action.toUpperCase();
     this.armedAction = action;
     text(this.confirm.title, label);
     text(this.confirm.desc, `Do you want to ${label.toLowerCase()} the miner process?`);
@@ -344,6 +365,8 @@ class Dashboard {
       toast.info("Data Refreshed", "Pulled the latest stats from the dashboard API.", "soft-refresh");
     } else if (result === "limited") {
       toast.warn("Slow Down", "Refresh is rate limited. Please wait a moment and try again.", "soft-refresh");
+    } else if (result === "unauthorized") {
+      toast.warn("Session Expired", "Please log in to refresh dashboard data.", "soft-refresh");
     } else if (result === "failed") {
       toast.error("Refresh Failed", "Could not reach the dashboard API. Please try again.", "soft-refresh");
     }
@@ -366,9 +389,9 @@ class Dashboard {
     });
     this.els.btnAction.addEventListener("click", () => {
       const action = this.els.btnAction.textContent === "START" ? "start" : "stop";
-      this.promptAction(action, action.toUpperCase());
+      this.promptAction(action);
     });
-    this.els.btnRestart.addEventListener("click", () => this.promptAction("restart", "RESTART"));
+    this.els.btnRestart.addEventListener("click", () => this.promptAction("restart"));
     this.els.btnAutoScroll.addEventListener("click", () => {
       this.consoleView.autoScroll = !this.consoleView.autoScroll;
       this.onAutoScroll(this.consoleView.autoScroll);

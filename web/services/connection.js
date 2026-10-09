@@ -45,7 +45,9 @@ async function retryDelay(response) {
   try {
     const data = await response.clone().json();
     if (Number.isFinite(data?.retryAfterMs)) return data.retryAfterMs;
-  } catch {}
+  } catch (err) {
+    console.warn("[dashboard] parsing retry delay payload warning:", err.message);
+  }
   const header = Number.parseInt(response.headers.get("Retry-After") || "", 10);
   return Number.isFinite(header) && header > 0 ? header * 1000 : 5000;
 }
@@ -89,12 +91,19 @@ export function createConnection({ onSnapshot, onUnauthorized, onStatusText, onC
       if (res.status === 401) return { unauthorized: true };
       if (res.status === 429) return { limited: await retryDelay(res) };
       if (res.ok) {
-        const snapshot = await res.json().catch(() => null);
-        return { ok: true, snapshot, streamWait: Number(snapshot?.streamRetryAfterMs) || 0 };
+        let snapshot = null;
+        try {
+          snapshot = await res.json();
+        } catch (err) {
+          console.warn("[dashboard] status JSON parse warning:", err.message);
+        }
+        return { ok: Boolean(snapshot), snapshot, streamWait: Number(snapshot?.streamRetryAfterMs) || 0 };
       }
+      console.warn(`[dashboard] status probe HTTP warning: ${res.status}`);
       return {};
-    } catch {
-      return { unreachable: true };
+    } catch (err) {
+      console.warn("[dashboard] status probe network failure:", err.message);
+      return { unreachable: true, error: err.message };
     }
   }
   function openStream() {
@@ -105,7 +114,8 @@ export function createConnection({ onSnapshot, onUnauthorized, onStatusText, onC
       let payload;
       try {
         payload = JSON.parse(event.data);
-      } catch {
+      } catch (err) {
+        console.warn("[dashboard] stats event parse warning:", err.message);
         return;
       }
       lastFrameAt = Date.now();
@@ -190,8 +200,17 @@ export function createConnection({ onSnapshot, onUnauthorized, onStatusText, onC
           return "unauthorized";
         }
         if (res.status === 429) return "limited";
-        if (!res.ok) return "failed";
-        const snapshot = await res.json().catch(() => null);
+        if (!res.ok) {
+          console.warn(`[dashboard] refresh HTTP warning: ${res.status}`);
+          return "failed";
+        }
+        let snapshot = null;
+        try {
+          snapshot = await res.json();
+        } catch (err) {
+          console.warn("[dashboard] refresh JSON parse warning:", err.message);
+          return "failed";
+        }
         if (!snapshot) return "failed";
         onSnapshot(snapshot);
         const dead = !source || source.readyState === EventSource.CLOSED;
@@ -203,7 +222,8 @@ export function createConnection({ onSnapshot, onUnauthorized, onStatusText, onC
           openStream();
         }
         return "ok";
-      } catch {
+      } catch (err) {
+        console.warn("[dashboard] refresh network failure:", err.message);
         return "failed";
       }
     },

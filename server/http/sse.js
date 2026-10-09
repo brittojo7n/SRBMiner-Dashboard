@@ -59,6 +59,7 @@ class SseHub {
       }
       return true;
     } catch (err) {
+      console.warn("[dashboard] SSE write warning:", err.message);
       this._drop(res);
       return false;
     }
@@ -127,7 +128,12 @@ class SseHub {
     const meta = { lastLogSeq: 0, blocked: false, blockedCount: 0 };
     this.clients.set(res, meta);
     let frame;
-    try { frame = this._fullFrame(); } catch (err) { frame = this._frame({ now: Date.now(), error: "snapshot_failed" }); }
+    try {
+      frame = this._fullFrame();
+    } catch (err) {
+      console.error("[dashboard] SSE full frame serialization error:", err.message);
+      frame = this._frame({ now: Date.now(), error: "snapshot_failed" });
+    }
     if (!this._write(res, OPEN_FRAME) || !this._write(res, frame)) {
       this._drop(res);
       return false;

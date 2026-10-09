@@ -11,7 +11,13 @@ const { LIMITS, LOG } = require("./server/utils/constants");
 const { unrefTimer } = require("./server/utils/timers");
 function yieldCpuToMiner() {
   if (process.platform !== "win32") return false;
-  try { os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); return true; } catch { return false; }
+  try {
+    os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+    return true;
+  } catch (err) {
+    console.warn("[dashboard] warning: lowering dashboard priority failed:", err.message);
+    return false;
+  }
 }
 class Server {
   constructor(options = {}) {
@@ -68,10 +74,14 @@ class Server {
     this.handleFault = (scope, err) => this._onFault(scope, err);
   }
   _onFault(scope, err) {
+    const msg = (err && err.message) || String(err);
+    console.error(`[dashboard] critical error (${scope}):`, msg);
     try {
-      this.minerManager.pushLog(`Dashboard internal error (${scope}): ${(err && err.message) || err}`, LOG.ERROR);
+      this.minerManager.pushLog(`Dashboard internal error (${scope}): ${msg}`, LOG.ERROR);
       this.sseHub.broadcast();
-    } catch {}
+    } catch (e) {
+      console.error(`[dashboard] failed broadcasting fault (${scope}):`, e.message);
+    }
   }
   start() {
     this._attachSignalHandlers();

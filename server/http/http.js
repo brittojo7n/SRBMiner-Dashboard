@@ -31,7 +31,6 @@ function send(res, status, headers, body) {
     console.error("[dashboard] response write failed:", err.message);
   }
 }
-function sendText(res, status, body) { send(res, status, HDR_TEXT, body); }
 function sendJson(res, status, payload) { send(res, status, HDR_JSON, JSON.stringify(payload)); }
 
 function sendRateLimited(res, waitMs) {
@@ -122,8 +121,8 @@ function createHttpServer({ config, state, sseHub, minerManager, gpuManager, api
   const routes = new Map();
 
   routes.set("POST /api/login", async (req, res, ip) => {
-    if (!requiresAuth) return sendText(res, 404, "Not found");
-    if (!passesXhrGuard(req)) return sendText(res, 403, "Forbidden: CSRF check failed");
+    if (!requiresAuth) return sendJson(res, 404, { error: "not_found", message: "Authentication is not enabled on this server." });
+    if (!passesXhrGuard(req)) return sendJson(res, 403, { error: "csrf_failed", message: "Forbidden: CSRF check failed." });
     const flood = limitLogin(ip);
     if (flood) return sendRateLimited(res, flood);
     sessions.prune();
@@ -131,14 +130,16 @@ function createHttpServer({ config, state, sseHub, minerManager, gpuManager, api
     if (lockout) return sendRateLimited(res, lockout);
     const body = await readJsonBody(req);
     if (body === TOO_LARGE) {
-      send(res, 413, { ...HDR_TEXT, Connection: "close" }, "Payload Too Large");
+      send(res, 413, { ...HDR_JSON, Connection: "close" }, JSON.stringify({ error: "payload_too_large", message: "Payload Too Large" }));
       res.on("finish", () => req.destroy());
       return;
     }
-    if (!body || typeof body.passphrase !== "string") return sendText(res, 400, "Bad Request");
+    if (!body || typeof body.passphrase !== "string") {
+      return sendJson(res, 400, { error: "bad_request", message: "Missing or invalid passphrase format in request body." });
+    }
     if (!safeEqual(body.passphrase, config.PASSPHRASE)) {
       sessions.recordFailure(ip);
-      return sendText(res, 401, "Unauthorized");
+      return sendJson(res, 401, { error: "unauthorized", message: "Invalid passphrase." });
     }
     sessions.clearFailures(ip);
     const token = sessions.issue();
@@ -204,10 +205,15 @@ function createHttpServer({ config, state, sseHub, minerManager, gpuManager, api
   });
 
   const minerControl = (action) => (req, res, ip) => {
-    if (!passesXhrGuard(req)) return sendText(res, 403, "Forbidden: CSRF check failed");
+    if (!passesXhrGuard(req)) return sendJson(res, 403, { error: "csrf_failed", message: "Forbidden: CSRF check failed." });
     const wait = limitMiner(ip);
     if (wait) return sendRateLimited(res, wait);
-    try { minerManager.requestAction(action); } catch { return sendJson(res, 500, { status: "error" }); }
+    try {
+      minerManager.requestAction(action);
+    } catch (err) {
+      console.error(`[dashboard] miner action "${action}" failed:`, err.message);
+      return sendJson(res, 500, { status: "error", error: err.message || "Failed to trigger miner action." });
+    }
     return sendJson(res, 200, { status: "ok" });
   };
   routes.set("POST /api/miner/start", minerControl("start"));
@@ -238,17 +244,27 @@ function createHttpServer({ config, state, sseHub, minerManager, gpuManager, api
     const isProtected = pathname.startsWith("/api/") || pathname === "/events" || pathname === "/health";
     if (requiresAuth && isProtected && pathname !== "/api/login") {
       if (pathname === "/events") sessions.prune();
-      if (!sessions.verify(req.headers.cookie)) return sendText(res, 401, "Unauthorized");
+      if (!sessions.verify(req.headers.cookie)) return sendJson(res, 401, { error: "unauthorized", message: "Unauthorized. Valid session required." });
     }
 
     const handler = routes.get(`${method} ${pathname}`);
     if (handler) {
       let result;
-      try { result = handler(req, res, ip); } catch { return sendText(res, 500, "Internal Server Error"); }
-      if (result && typeof result.catch === "function") result.catch(() => sendText(res, 500, "Internal Server Error"));
+      try {
+        result = handler(req, res, ip);
+      } catch (err) {
+        console.error(`[dashboard] route handler error (${method} ${pathname}):`, err.message);
+        return sendJson(res, 500, { error: "internal_error", message: "Internal Server Error", detail: err.message });
+      }
+      if (result && typeof result.catch === "function") {
+        result.catch((err) => {
+          console.error(`[dashboard] async route error (${method} ${pathname}):`, err.message);
+          sendJson(res, 500, { error: "internal_error", message: "Internal Server Error", detail: err.message });
+        });
+      }
       return;
     }
-    sendText(res, 404, "Not found");
+    sendJson(res, 404, { error: "not_found", message: `Route ${method} ${pathname} not found.` });
   });
 
   Object.assign(server, SERVER_TIMEOUTS);
