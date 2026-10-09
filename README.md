@@ -1,70 +1,48 @@
 # SRBMiner Dashboard
 
-Lightweight, high-performance web dashboard for SRBMiner-MULTI. Launches the miner, streams live colorized logs, and displays real-time telemetry (multi-algorithm, CPU threads, AMD/NVIDIA/Intel GPUs, pool latency, shares, and difficulty) over Server-Sent Events (SSE).
+Lightweight web dashboard for SRBMiner-MULTI. Launches the miner, streams live logs, and shows GPU telemetry.
 
 ## Prerequisites
 
-- Windows or Linux
-- Node.js 18+ available as `node`
-- SRBMiner-MULTI placed in `../miner` or configured via `MINER_CWD` / `MINER_EXE`
+- Operating System: Windows
+- For Telemetry only NVIDIA GPUs are Supported: `nvidia-smi` on PATH (only required if you want to see GPU telemetry)
+- Node.js 18+
+- SRBMiner-MULTI downloaded separately.
 
-## Setup
+## Setup & Run
 
-- Ensure SRBMiner-MULTI is available in the miner folder.
-- Create your `.env` by copying the example file:
+1. Copy `.env.example` to `.env` and configure your settings.
+2. Start the dashboard:
 
-  ```powershell
-  Copy-Item -Path ".env.example" -Destination ".env"
-  ```
+    ```bat
+    node main.js
+    ```
 
-  ```bat
-  copy .env.example .env
-  ```
+    Optionally you can define a batch file to run the dashboard with elevated privileges and set the thread pool size for Node.js.
 
-- Open `.env` in a text editor and fill in your values. All available options are documented in `.env.example`.
+    Example `start.bat`:
 
-## Environment Variables
+    ```bat
+    @echo off
+    setlocal
 
-The dashboard uses a `.env` file (or OS environment variables) for configuration. In addition to the required miner arguments, you can set the following optional flags:
+    fltmc >nul 2>&1
+    if not "%errorlevel%"=="0" (
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+        exit /b
+    )
 
-- **`FORWARD_CONSOLE`** (default `false`): When `true`, mirrors the SRBMiner stdout/stderr to the terminal where `main.js` is running, regardless of whether any browser tabs are open. When `false` or unset, nothing from the miner is printed to the Node console; the dashboard still parses and shows the logs. Parsed case-insensitively (e.g. `True`, `true`).
+    cd /d "%~dp0"
 
-## Start
+    set UV_THREADPOOL_SIZE=2
+    node --jitless --max-semi-space-size=4 --max-old-space-size=32 main.js
+    pause
+    ```
 
-```bat
-node main.js
-```
+3. Open `http://127.0.0.1:4067` (or your LAN IP if you had given `0.0.0.0` as the IP) and enter the passphrase (if you have set one).
 
-Open `http://127.0.0.1:4067` (or your LAN IP if you configured `HOST=0.0.0.0`) and enter your passphrase (if configured).
+## Structure
 
-## Project structure
-
-```plain
-main.js                   entry point (node main.js)
-server/                   Node.js application runtime
-  utils/                  shared foundations: args, config, constants, state, timers
-  http/                   HTTP subsystem: auth, bundle, http, ratelimit, sse, static
-  miner/                  miner process + hardware: devices, gpu, miner, parser
-web/                      browser-facing web application
-  index.html              document template
-  style.css               stylesheet
-  favicon.svg             favicon
-  services/               bootstrap + infrastructure: app, connection, perf
-  components/             UI components: console, gpu, identity, metric, modal, toast
-  lib/                    shared utilities: dom, present, user
-```
-
-Delivery follows a three-layer model: the `web/` source is composed at startup into a single bundle and served through an explicit allowlist (`/`, `/index.html`, `/app.js`, `/style.css`, `/favicon.svg`). Internal paths such as `/js/*`, `/server/*`, `/web/*` and any traversal are never resolvable over HTTP.
-
-## Resource footprint
-
-Measured on Node 22 (Linux x86-64, 2 cores): **~0.08% CPU idle**, **~0.2% CPU** with one browser tab streaming. The dashboard's own heap is **~6–8 MB**; the rest of the process RSS is the Node runtime (~41 MB floor), so a plain `node main.js` idles around **54 MB**.
-
-`nvidia-smi` is only queried (read-only) while a browser tab is open.
-
-Optional lean launch (saves ~6 MB RSS):
-
-```bat
-set UV_THREADPOOL_SIZE=2
-node --jitless --max-semi-space-size=4 --max-old-space-size=32 main.js
-```
+- `main.js`: Application entrypoint
+- `server/`: HTTP server, auth, SSE hub, miner process manager, hardware telemetry
+- `web/`: Client UI, components, live event connection, responsive styling

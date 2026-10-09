@@ -257,7 +257,7 @@ button, input, select, textarea { font-family: inherit; }
   padding: var(--pad);
   contain: layout;
 }
-#gpus { contain: layout; }
+#gpus, #cpus { contain: layout; }
 .gpu-empty {
   display: flex;
   flex-direction: column;

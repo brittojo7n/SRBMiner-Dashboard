@@ -11,378 +11,391 @@ import { createConsole } from "../components/console.js";
 import { createConnection } from "./connection.js";
 
 const ACTION_META = {
-  start: { status: "STARTING", label: "START", toast: ["Starting Miner", "Launching the miner process."] },
-  stop: { status: "STOPPING", label: "STOP", toast: ["Stopping Miner", "Shutting down the miner process."] },
-  restart: { status: "RESTARTING", label: "RESTART", toast: ["Restarting Miner", "Stopping and relaunching the miner process."] },
+	start: { status: "STARTING", label: "START", toast: ["Starting Miner", "Launching the miner process."] },
+	stop: { status: "STOPPING", label: "STOP", toast: ["Stopping Miner", "Shutting down the miner process."] },
+	restart: { status: "RESTARTING", label: "RESTART", toast: ["Restarting Miner", "Stopping and relaunching the miner process."] },
 };
 
 function buildAuthContent() {
-  const wrap = make("div");
-  wrap.appendChild(make("h2", null, "Login"));
-  wrap.appendChild(make("p", null, "Enter your passphrase to access the dashboard."));
-  const input = make("input", "modal-input");
-  input.type = "password";
-  input.placeholder = "Passphrase";
-  const err = make("div", "modal-error", "Invalid passphrase");
-  const submit = make("button", "modal-btn", "Login");
-  submit.type = "button";
-  wrap.append(input, err, submit);
-  return { wrap, input, err, submit };
+	const wrap = make("div");
+	const input = make("input", "modal-input");
+	input.type = "password";
+	input.placeholder = "Passphrase";
+	const err = make("div", "modal-error", "Invalid passphrase");
+	const submit = make("button", "modal-btn", "Login");
+	submit.type = "button";
+	wrap.append(make("h2", null, "Login"), make("p", null, "Enter your passphrase to access the dashboard."), input, err, submit);
+	return { wrap, input, err, submit };
 }
 
 function buildConfirmContent() {
-  const wrap = make("div");
-  const title = make("h2", null, "Confirm Action");
-  const desc = make("p", null, "Are you sure you want to proceed?");
-  const group = make("div", "btn-group");
-  const cancel = make("button", "modal-btn modal-btn-cancel", "Cancel");
-  cancel.type = "button";
-  const yes = make("button", "modal-btn modal-btn-start", "START");
-  yes.type = "button";
-  group.append(cancel, yes);
-  wrap.append(title, desc, group);
-  return { wrap, title, desc, cancel, yes };
+	const wrap = make("div");
+	const group = make("div", "btn-group");
+	const cancel = make("button", "modal-btn modal-btn-cancel", "Cancel");
+	cancel.type = "button";
+	const yes = make("button", "modal-btn modal-btn-start", "START");
+	yes.type = "button";
+	const title = make("h2", null, "Confirm Action");
+	const desc = make("p", null, "Are you sure you want to proceed?");
+	group.append(cancel, yes);
+	wrap.append(title, desc, group);
+	return { wrap, title, desc, cancel, yes };
 }
 
 function buildSummary(host) {
-  const cards = {
-    hashrate: createMetric({ label: "Total Hashrate", value: DASH, accent: "cyan", surface: 1 }),
-    accepted: createMetric({ label: "Shares", value: DASH, accent: "green", surface: 1 }),
-    ratio: createMetric({ label: "Acceptance Ratio", value: DASH, surface: 1 }),
-    uptime: createMetric({ label: "Uptime", value: DASH, surface: 1 }),
-  };
-  for (const card of Object.values(cards)) host.appendChild(card.node);
-  return cards;
+	const cards = {
+		hashrate: createMetric({ label: "Total Hashrate", value: DASH, accent: "cyan", surface: 1 }),
+		accepted: createMetric({ label: "Shares", value: DASH, accent: "green", surface: 1 }),
+		ratio: createMetric({ label: "Acceptance Ratio", value: DASH, surface: 1 }),
+		uptime: createMetric({ label: "Uptime", value: DASH, surface: 1 }),
+	};
+	for (const k in cards) host.appendChild(cards[k].node);
+	return cards;
 }
 
 function buildMiningMetrics(host) {
-  const cards = {
-    shares: createMetric({
-      label: "Accepted \u2022 Rejected",
-      surface: 2,
-      parts: [
-        { key: "accepted", value: "0", accent: "green" },
-        { key: "rejected", value: "0", accent: "red" },
-      ],
-    }),
-    spm: createMetric({ label: "Shares Per Minute", value: DASH, accent: "green", surface: 2 }),
-    difficulty: createMetric({ label: "Network Difficulty", value: DASH, accent: "violet", surface: 2 }),
-    lastAccepted: createMetric({ label: "Last Share", value: DASH, surface: 2, small: true }),
-  };
-  for (const card of Object.values(cards)) host.appendChild(card.node);
-  return cards;
+	const cards = {
+		shares: createMetric({
+			label: "Accepted \u2022 Rejected",
+			surface: 2,
+			parts: [
+				{ key: "accepted", value: "0", accent: "green" },
+				{ key: "rejected", value: "0", accent: "red" },
+			],
+		}),
+		spm: createMetric({ label: "Shares Per Minute", value: DASH, accent: "green", surface: 2 }),
+		difficulty: createMetric({ label: "Network Difficulty", value: DASH, accent: "violet", surface: 2 }),
+		lastAccepted: createMetric({ label: "Last Share", value: DASH, surface: 2, small: true }),
+	};
+	for (const k in cards) host.appendChild(cards[k].node);
+	return cards;
 }
 
 class Dashboard {
-  constructor() {
-    this.els = {
-      dot: el("dot"), status: el("status"), host: el("host"), btnAction: el("btnAction"),
-      btnRestart: el("btnRestart"), error: el("error"), gpus: el("gpus"), cpus: el("cpus"),
-      localTime: el("localTime"), btnAutoScroll: el("btnAutoScroll"), refresh: el("btnRefresh"),
-    };
-    this.summary = buildSummary(el("summary"));
-    this.identity = createIdentity();
-    el("identity").appendChild(this.identity.node);
-    this.mining = buildMiningMetrics(el("miningMetrics"));
-    this.modal = createModal();
-    this.auth = buildAuthContent();
-    this.confirm = buildConfirmContent();
-    this.consoleView = createConsole({
-      terminal: el("terminal"), lines: el("logLines"), counter: el("logCount"),
-      onAutoScrollChange: this.onAutoScroll.bind(this),
-    });
-    this.serverNow = null;
-    this.capturedAt = 0;
-    this.startedAt = null;
-    this.tz = null;
-    this.accepted = 0;
-    this.ticker = null;
-    this.pendingStatus = null;
-    this.lastError = null;
-    this.lastGpuError = null;
-    this.lastStatus = null;
-    this.armedAction = null;
-    this.refreshing = false;
-    this.connection = createConnection({
-      onSnapshot: this.render.bind(this),
-      onUnauthorized: this.showAuth.bind(this),
-      onLive: () => this.modal.close(),
-      onCountdown: (message) => text(this.els.host, message),
-      onStatusText: this.onStatusText.bind(this),
-    });
-    this.bindEvents();
-    cpuView.render(this.els.cpus, []);
-    gpuView.render(this.els.gpus, [], "");
-    this.connection.connect();
-  }
+	constructor() {
+		this.els = {
+			dot: el("dot"), status: el("status"), host: el("host"), btnAction: el("btnAction"),
+			btnRestart: el("btnRestart"), error: el("error"), gpus: el("gpus"), cpus: el("cpus"),
+			localTime: el("localTime"), btnAutoScroll: el("btnAutoScroll"), refresh: el("btnRefresh"),
+			gpuSection: el("gpuSection"),
+		};
+		this.summary = buildSummary(el("summary"));
+		this.identity = createIdentity();
+		el("identity").appendChild(this.identity.node);
+		this.mining = buildMiningMetrics(el("miningMetrics"));
+		this.modal = createModal();
+		this.auth = buildAuthContent();
+		this.confirm = buildConfirmContent();
+		this.consoleView = createConsole({
+			terminal: el("terminal"), lines: el("logLines"), counter: el("logCount"),
+			onAutoScrollChange: this.onAutoScroll.bind(this),
+		});
+		this.serverNow = null;
+		this.capturedAt = 0;
+		this.startedAt = null;
+		this.tz = null;
+		this.accepted = 0;
+		this.ticker = null;
+		this.pendingStatus = null;
+		this.lastError = null;
+		this.lastGpuError = null;
+		this.lastStatus = null;
+		this.armedAction = null;
+		this.refreshing = false;
+		this.connection = createConnection({
+			onSnapshot: this.render.bind(this),
+			onUnauthorized: this.showAuth.bind(this),
+			onLive: () => this.modal.close(),
+			onCountdown: (message) => text(this.els.host, message),
+			onStatusText: this.onStatusText.bind(this),
+		});
+		this.bindEvents();
+		cpuView.render(this.els.cpus, []);
+		gpuView.render(this.els.gpus, [], "");
+		this.connection.connect();
+	}
 
-  tick() {
-    if (this.serverNow == null) return;
-    const now = this.serverNow + (Date.now() - this.capturedAt);
-    text(this.els.localTime, timestamp(now, this.tz));
-    if (this.startedAt) {
-      const elapsed = Math.max(0, now - this.startedAt);
-      this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)) });
-      this.mining.spm.set({ value: sharesPerMinute(this.accepted, elapsed) });
-    } else {
-      this.summary.uptime.set({ value: DASH });
-      this.mining.spm.set({ value: DASH });
-    }
-  }
+	tick() {
+		if (this.serverNow == null) return;
+		const now = this.serverNow + (Date.now() - this.capturedAt);
+		text(this.els.localTime, timestamp(now, this.tz));
+		if (this.startedAt) {
+			const elapsed = Math.max(0, now - this.startedAt);
+			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)) });
+			this.mining.spm.set({ value: sharesPerMinute(this.accepted, elapsed) });
+		} else {
+			this.summary.uptime.set({ value: DASH });
+			this.mining.spm.set({ value: DASH });
+		}
+	}
 
-  startClock() {
-    this.ticker ||= setInterval(this.tick.bind(this), 1000);
-  }
+	startClock() {
+		this.ticker ||= setInterval(this.tick.bind(this), 1000);
+	}
 
-  stopClock() {
-    clearInterval(this.ticker);
-    this.ticker = null;
-  }
+	stopClock() {
+		clearInterval(this.ticker);
+		this.ticker = null;
+	}
 
-  applyChrome(status, locked) {
-    text(this.els.status, status);
-    const idle = IDLE.has(status);
-    const busy = locked || (!idle && !LIVE.has(status));
-    className(this.els.dot, dotClass(status));
-    text(this.els.btnAction, idle ? "START" : "STOP");
-    className(this.els.btnAction, `c-btn ${idle ? "btn-start" : "btn-stop"}`);
-    this.els.btnAction.disabled = busy;
-    this.els.btnRestart.disabled = busy || idle;
-  }
+	applyChrome(status, locked) {
+		text(this.els.status, status);
+		const idle = IDLE.has(status);
+		const busy = locked || (!idle && !LIVE.has(status));
+		className(this.els.dot, dotClass(status));
+		text(this.els.btnAction, idle ? "START" : "STOP");
+		className(this.els.btnAction, `c-btn ${idle ? "btn-start" : "btn-stop"}`);
+		this.els.btnAction.disabled = busy;
+		this.els.btnRestart.disabled = busy || idle;
+	}
 
-  onAutoScroll(on) {
-    className(this.els.btnAutoScroll, `c-btn${on ? " active" : ""}`);
-    text(this.els.btnAutoScroll, `Auto-scroll: ${on ? "ON" : "OFF"}`);
-  }
+	onAutoScroll(on) {
+		className(this.els.btnAutoScroll, `c-btn${on ? " active" : ""}`);
+		text(this.els.btnAutoScroll, `Auto-scroll: ${on ? "ON" : "OFF"}`);
+	}
 
-  announce(status) {
-    if (this.lastStatus !== null && status !== this.lastStatus) {
-      const wasIdle = IDLE.has(this.lastStatus);
-      const wasLive = LIVE.has(this.lastStatus);
-      if (status === "CRASHED") {
-        toast.error("Miner Crashed", "The SRBMiner process exited unexpectedly.", "miner-state");
-      } else if (status === "STOPPED" && !wasIdle) {
-        toast.neutral("Miner Stopped", "The SRBMiner process has stopped.", "miner-state");
-      } else if (status === "MINING" && this.lastStatus === "DISCONNECTED") {
-        toast.success("Mining Resumed", "The miner is hashing again.", "miner-state");
-      } else if (LIVE.has(status) && !wasLive) {
-        toast.success("Miner Started", "The SRBMiner process is running.", "miner-state");
-      }
-    }
-    this.lastStatus = status;
-  }
+	announce(status) {
+		if (this.lastStatus !== null && status !== this.lastStatus) {
+			const wasIdle = IDLE.has(this.lastStatus);
+			const wasLive = LIVE.has(this.lastStatus);
+			if (status === "CRASHED") {
+				toast.error("Miner Crashed", "The SRBMiner process exited unexpectedly.", "miner-state");
+			} else if (status === "STOPPED" && !wasIdle) {
+				toast.neutral("Miner Stopped", "The SRBMiner process has stopped.", "miner-state");
+			} else if (status === "MINING" && this.lastStatus === "DISCONNECTED") {
+				toast.success("Mining Resumed", "The miner is hashing again.", "miner-state");
+			} else if (LIVE.has(status) && !wasLive) {
+				toast.success("Miner Started", "The SRBMiner process is running.", "miner-state");
+			}
+		}
+		this.lastStatus = status;
+	}
 
-  render(snapshot) {
-    this.serverNow = snapshot.now;
-    this.capturedAt = Date.now();
-    this.startedAt = snapshot.miner.running ? snapshot.startedAt : null;
-    this.tz = snapshot.host.tz;
-    this.accepted = snapshot.mining.accepted;
-    this.tick();
-    this.startClock();
-    const display = presentSnapshot(snapshot, { now: this.serverNow, pendingStatus: this.pendingStatus });
-    this.announce(display.status);
-    text(this.els.host, display.host);
-    this.applyChrome(display.status, !!this.pendingStatus);
-    this.summary.hashrate.set({ value: display.hashrate });
-    this.summary.accepted.set({ value: display.accepted });
-    this.summary.ratio.set({ value: display.ratio });
-    this.mining.shares.set({ parts: { accepted: display.acceptedCount, rejected: display.rejected } });
-    this.mining.difficulty.set({ value: display.difficulty });
-    this.mining.lastAccepted.set({ value: display.lastAccepted });
-    this.identity.set({
-      user: snapshot.miner.user,
-      wallet: snapshot.miner.wallet,
-      worker: snapshot.miner.worker,
-      algo: display.algo,
-      pool: display.pool,
-    });
-    this.consoleView.render(snapshot.miner.logs, { count: snapshot.logCount, seq: snapshot.logSeq });
-    if (snapshot.miner.lastError) {
-      className(this.els.error, "errorbox show");
-      text(this.els.error, `CRITICAL ERROR: ${snapshot.miner.lastError}`);
-      if (snapshot.miner.lastError !== this.lastError) {
-        this.lastError = snapshot.miner.lastError;
-        const detail = stripLogPrefix(snapshot.miner.lastError);
-        if (snapshot.mining.status === "DISCONNECTED") {
-          toast.warn("Pool Disconnected", detail || "Lost connection to the mining pool.", "miner-error");
-        } else {
-          toast.error("Miner Error", detail || snapshot.miner.lastError, "miner-error");
-        }
-      }
-    } else {
-      className(this.els.error, "errorbox");
-      this.lastError = null;
-    }
-    if (snapshot.gpuError && snapshot.gpuError !== this.lastGpuError) {
-      this.lastGpuError = snapshot.gpuError;
-      toast.error(
-        "GPU Telemetry Unavailable",
-        /ENOENT|not found|not recognized/i.test(snapshot.gpuError)
-          ? "nvidia-smi could not be found. Check that NVIDIA drivers are installed and on your PATH."
-          : snapshot.gpuError,
-        "gpu-error",
-      );
-    } else if (!snapshot.gpuError) {
-      this.lastGpuError = null;
-    }
-    cpuView.render(this.els.cpus, snapshot.cpu);
-    const gpuSection = document.getElementById("gpuSection");
-    if (snapshot.gpu && snapshot.gpu.length > 0) {
-      if (gpuSection) gpuSection.style.display = "block";
-      gpuView.render(this.els.gpus, snapshot.gpu, snapshot.gpuError);
-    } else {
-      if (gpuSection) gpuSection.style.display = "none";
-      gpuView.render(this.els.gpus, [], snapshot.gpuError);
-    }
-  }
+	render(snapshot) {
+		this.serverNow = snapshot.now;
+		this.capturedAt = Date.now();
+		this.startedAt = snapshot.miner.running ? snapshot.startedAt : null;
+		this.tz = snapshot.host.tz;
+		this.accepted = snapshot.mining.accepted;
+		this.tick();
+		this.startClock();
+		const display = presentSnapshot(snapshot, { pendingStatus: this.pendingStatus });
+		this.announce(display.status);
+		text(this.els.host, display.host);
+		this.applyChrome(display.status, !!this.pendingStatus);
+		this.summary.hashrate.set({ value: display.hashrate });
+		this.summary.accepted.set({ value: display.accepted });
+		this.summary.ratio.set({ value: display.ratio });
+		this.mining.shares.set({ parts: { accepted: display.acceptedCount, rejected: display.rejected } });
+		this.mining.difficulty.set({ value: display.difficulty });
+		this.mining.lastAccepted.set({ value: display.lastAccepted });
+		this.identity.set({
+			user: snapshot.miner.user,
+			wallet: snapshot.miner.wallet,
+			worker: snapshot.miner.worker,
+			algo: display.algo,
+			pool: display.pool,
+			algorithms: snapshot.mining.algorithms,
+		});
+		this.consoleView.render(snapshot.miner.logs, { count: snapshot.logCount, seq: snapshot.logSeq });
+		if (snapshot.miner.lastError) {
+			className(this.els.error, "errorbox show");
+			text(this.els.error, `CRITICAL ERROR: ${snapshot.miner.lastError}`);
+			if (snapshot.miner.lastError !== this.lastError) {
+				this.lastError = snapshot.miner.lastError;
+				const detail = stripLogPrefix(snapshot.miner.lastError);
+				if (snapshot.mining.status === "DISCONNECTED") {
+					toast.warn("Pool Disconnected", detail || "Lost connection to the mining pool.", "miner-error");
+				} else {
+					toast.error("Miner Error", detail || snapshot.miner.lastError, "miner-error");
+				}
+			}
+		} else {
+			className(this.els.error, "errorbox");
+			this.lastError = null;
+		}
+		if (snapshot.gpuError && snapshot.gpuError !== this.lastGpuError) {
+			this.lastGpuError = snapshot.gpuError;
+			toast.error(
+				"GPU Telemetry Unavailable",
+				/ENOENT|not found|not recognized/i.test(snapshot.gpuError)
+					? "nvidia-smi could not be found. Check that NVIDIA drivers are installed and on your PATH."
+					: snapshot.gpuError,
+				"gpu-error",
+			);
+		} else if (!snapshot.gpuError) {
+			this.lastGpuError = null;
+		}
+		cpuView.render(this.els.cpus, snapshot.cpu);
+		if (snapshot.gpu && snapshot.gpu.length > 0) {
+			if (this.els.gpuSection) this.els.gpuSection.style.display = "block";
+			gpuView.render(this.els.gpus, snapshot.gpu, snapshot.gpuError);
+		} else {
+			if (this.els.gpuSection) this.els.gpuSection.style.display = "none";
+			gpuView.render(this.els.gpus, [], snapshot.gpuError);
+		}
+	}
 
-  onStatusText(label, unreachable) {
-    this.stopClock();
-    this.pendingStatus = null;
-    text(this.els.status, label);
-    className(this.els.dot, "dot err");
-    if (unreachable) text(this.els.host, "Host Unreachable");
-    this.els.btnAction.disabled = true;
-    this.els.btnRestart.disabled = true;
-  }
+	onStatusText(label, unreachable) {
+		this.stopClock();
+		this.pendingStatus = null;
+		text(this.els.status, label);
+		className(this.els.dot, "dot err");
+		if (unreachable) text(this.els.host, "Host Unreachable");
+		this.els.btnAction.disabled = true;
+		this.els.btnRestart.disabled = true;
+	}
 
-  showAuth() {
-    this.auth.input.value = "";
-    this.auth.err.style.display = "none";
-    this.modal.open(this.auth.wrap, { dismissable: false });
-  }
+	showAuth() {
+		this.auth.input.value = "";
+		this.auth.err.style.display = "none";
+		this.modal.open(this.auth.wrap, { dismissable: false });
+	}
 
-  async login() {
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: JSON.stringify({ passphrase: this.auth.input.value }),
-      });
-      if (res.ok) {
-        this.modal.close();
-        toast.success("Login Successful", "Welcome to the SRBMiner Dashboard.", "login-success");
-        this.connection.restart();
-        return;
-      }
-      if (res.status === 429) {
-        this.auth.err.textContent = "Too many attempts. Please wait a moment and try again.";
-        toast.warn("Too Many Requests", "Too many failed attempts. Please wait before trying again.", "rate-limit-login");
-      } else {
-        this.auth.err.textContent = "Invalid passphrase";
-      }
-    } catch (err) {
-      console.error("[dashboard] login failed:", err.message);
-      this.auth.err.textContent = "Invalid passphrase";
-    }
-    this.auth.err.style.display = "block";
-  }
+	async login() {
+		try {
+			const res = await fetch("/api/login", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+				body: JSON.stringify({ passphrase: this.auth.input.value }),
+			});
+			if (res.ok) {
+				this.modal.close();
+				toast.success("Login Successful", "Welcome to the SRBMiner Dashboard.", "login-success");
+				this.connection.restart();
+				return;
+			}
+			if (res.status === 429) {
+				this.auth.err.textContent = "Too many attempts. Please wait a moment and try again.";
+				toast.warn("Too Many Requests", "Too many failed attempts. Please wait before trying again.", "rate-limit-login");
+			} else if (res.status === 401) {
+				this.auth.err.textContent = "Invalid passphrase";
+			} else {
+				let msg = `Login failed (HTTP ${res.status})`;
+				try {
+					const data = await res.json();
+					if (data?.message) msg = data.message;
+				} catch {}
+				this.auth.err.textContent = msg;
+				toast.error("Login Failed", msg, "login-error");
+			}
+		} catch (err) {
+			this.auth.err.textContent = "Connection failed. Could not reach server.";
+			toast.error("Connection Failed", `Could not reach dashboard host: ${err.message}`, "login-network-error");
+		}
+		this.auth.err.style.display = "block";
+	}
 
-  async runAction(action) {
-    const meta = ACTION_META[action];
-    if (!meta || this.pendingStatus) return;
-    this.pendingStatus = meta.status;
-    this.applyChrome(this.pendingStatus, true);
-    toast.info(meta.toast[0], meta.toast[1], `miner-${action}`);
-    try {
-      const res = await fetch(`/api/miner/${action}`, {
-        method: "POST",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-      });
-      if (res.status === 401) {
-        this.showAuth();
-      } else if (!res.ok) {
-        toast.dismiss(`miner-${action}`);
-        if (res.status === 429) {
-          let seconds = 5;
-          try {
-            const data = await res.clone().json();
-            if (Number.isFinite(data.retryAfterSeconds)) seconds = data.retryAfterSeconds;
-          } catch {}
-          toast.warn("Too Many Requests", `Miner controls are rate limited. Please wait ${seconds} second${seconds === 1 ? "" : "s"} before trying again.`, "rate-limit-action");
-        } else {
-          toast.error("Action Failed", `The dashboard rejected the request (HTTP ${res.status}).`, "action-failed");
-        }
-      }
-    } catch (err) {
-      console.error("[dashboard] action failed:", err.message);
-      toast.dismiss(`miner-${action}`);
-      toast.error("Action Failed", "Could not reach the dashboard host. Please try again.", "action-failed");
-    }
-    this.pendingStatus = null;
-  }
+	async runAction(action) {
+		const meta = ACTION_META[action];
+		if (!meta || this.pendingStatus) return;
+		this.pendingStatus = meta.status;
+		this.applyChrome(this.pendingStatus, true);
+		toast.info(meta.toast[0], meta.toast[1], `miner-${action}`);
+		try {
+			const res = await fetch(`/api/miner/${action}`, {
+				method: "POST",
+				headers: { "X-Requested-With": "XMLHttpRequest" },
+			});
+			if (res.status === 401) {
+				this.showAuth();
+			} else if (!res.ok) {
+				toast.dismiss(`miner-${action}`);
+				if (res.status === 429) {
+					let seconds = 5;
+					try {
+						const data = await res.json();
+						if (Number.isFinite(data?.retryAfterSeconds)) seconds = data.retryAfterSeconds;
+					} catch {}
+					toast.warn("Too Many Requests", `Miner controls are rate limited. Please wait ${seconds} second${seconds === 1 ? "" : "s"} before trying again.`, "rate-limit-action");
+				} else {
+					let detail = `The dashboard rejected the request (HTTP ${res.status}).`;
+					try {
+						const data = await res.json();
+						if (data?.error || data?.message) detail = data.message || data.error;
+					} catch {}
+					toast.error("Action Failed", detail, "action-failed");
+				}
+			}
+		} catch (err) {
+			toast.dismiss(`miner-${action}`);
+			toast.error("Action Failed", `Could not reach dashboard host: ${err.message}`, "action-failed");
+		}
+		this.pendingStatus = null;
+	}
 
-  promptAction(action, label) {
-    if (this.pendingStatus) return;
-    this.armedAction = action;
-    text(this.confirm.title, label);
-    text(this.confirm.desc, `Do you want to ${label.toLowerCase()} the miner process?`);
-    className(this.confirm.yes, `modal-btn modal-btn-${action.toLowerCase()}`);
-    text(this.confirm.yes, label);
-    this.modal.open(this.confirm.wrap, {
-      dismissable: true,
-      onClose: () => { this.armedAction = null; },
-    });
-  }
+	promptAction(action, customLabel) {
+		if (this.pendingStatus) return;
+		const label = customLabel || ACTION_META[action]?.label || action.toUpperCase();
+		this.armedAction = action;
+		text(this.confirm.title, label);
+		text(this.confirm.desc, `Do you want to ${label.toLowerCase()} the miner process?`);
+		className(this.confirm.yes, `modal-btn modal-btn-${action.toLowerCase()}`);
+		text(this.confirm.yes, label);
+		this.modal.open(this.confirm.wrap, {
+			dismissable: true,
+			onClose: () => { this.armedAction = null; },
+		});
+	}
 
-  async softRefresh() {
-    if (this.refreshing) return;
-    this.refreshing = true;
-    this.els.refresh.disabled = true;
-    this.els.refresh.setAttribute("aria-busy", "true");
-    this.els.refresh.classList.add("spinning");
-    let result;
-    try {
-      result = await this.connection.refresh();
-    } catch (err) {
-      console.error("[dashboard] refresh failed:", err.message);
-      result = "failed";
-    }
-    if (result === "ok") {
-      toast.info("Data Refreshed", "Pulled the latest stats from the dashboard API.", "soft-refresh");
-    } else if (result === "limited") {
-      toast.warn("Slow Down", "Refresh is rate limited. Please wait a moment and try again.", "soft-refresh");
-    } else if (result === "failed") {
-      toast.error("Refresh Failed", "Could not reach the dashboard API. Please try again.", "soft-refresh");
-    }
-    setTimeout(() => {
-      this.refreshing = false;
-      this.els.refresh.classList.remove("spinning");
-      this.els.refresh.disabled = false;
-      this.els.refresh.removeAttribute("aria-busy");
-    }, 400);
-  }
+	async softRefresh() {
+		if (this.refreshing) return;
+		this.refreshing = true;
+		this.els.refresh.disabled = true;
+		this.els.refresh.setAttribute("aria-busy", "true");
+		this.els.refresh.classList.add("spinning");
+		let result;
+		try {
+			result = await this.connection.refresh();
+		} catch {
+			result = "failed";
+		}
+		if (result === "ok") {
+			toast.info("Data Refreshed", "Pulled the latest stats from the dashboard API.", "soft-refresh");
+		} else if (result === "limited") {
+			toast.warn("Slow Down", "Refresh is rate limited. Please wait a moment and try again.", "soft-refresh");
+		} else if (result === "unauthorized") {
+			toast.warn("Session Expired", "Please log in to refresh dashboard data.", "soft-refresh");
+		} else if (result === "failed") {
+			toast.error("Refresh Failed", "Could not reach the dashboard API. Please try again.", "soft-refresh");
+		}
+		setTimeout(() => {
+			this.refreshing = false;
+			this.els.refresh.classList.remove("spinning");
+			this.els.refresh.disabled = false;
+			this.els.refresh.removeAttribute("aria-busy");
+		}, 400);
+	}
 
-  bindEvents() {
-    this.auth.submit.addEventListener("click", this.login.bind(this));
-    this.auth.input.addEventListener("keydown", (e) => { if (e.key === "Enter") this.login(); });
-    this.confirm.cancel.addEventListener("click", () => this.modal.close());
-    this.confirm.yes.addEventListener("click", () => {
-      const action = this.armedAction;
-      this.modal.close();
-      if (action) this.runAction(action);
-    });
-    this.els.btnAction.addEventListener("click", () => {
-      const action = this.els.btnAction.textContent === "START" ? "start" : "stop";
-      this.promptAction(action, action.toUpperCase());
-    });
-    this.els.btnRestart.addEventListener("click", () => this.promptAction("restart", "RESTART"));
-    this.els.btnAutoScroll.addEventListener("click", () => {
-      this.consoleView.autoScroll = !this.consoleView.autoScroll;
-      this.onAutoScroll(this.consoleView.autoScroll);
-    });
-    this.els.refresh.addEventListener("click", this.softRefresh.bind(this));
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) {
-        this.stopClock();
-        this.connection.suspend();
-      } else {
-        this.startClock();
-        if (this.connection.idle) this.connection.connect();
-      }
-    });
-  }
+	bindEvents() {
+		this.auth.submit.addEventListener("click", this.login.bind(this));
+		this.auth.input.addEventListener("keydown", (e) => { if (e.key === "Enter") this.login(); });
+		this.confirm.cancel.addEventListener("click", () => this.modal.close());
+		this.confirm.yes.addEventListener("click", () => {
+			const action = this.armedAction;
+			this.modal.close();
+			if (action) this.runAction(action);
+		});
+		this.els.btnAction.addEventListener("click", () => {
+			const action = this.els.btnAction.textContent === "START" ? "start" : "stop";
+			this.promptAction(action);
+		});
+		this.els.btnRestart.addEventListener("click", () => this.promptAction("restart"));
+		this.els.btnAutoScroll.addEventListener("click", () => {
+			this.consoleView.autoScroll = !this.consoleView.autoScroll;
+			this.onAutoScroll(this.consoleView.autoScroll);
+		});
+		this.els.refresh.addEventListener("click", this.softRefresh.bind(this));
+		document.addEventListener("visibilitychange", () => {
+			if (document.hidden) {
+				this.stopClock();
+				this.connection.suspend();
+			} else {
+				this.startClock();
+				if (this.connection.idle) this.connection.connect();
+			}
+		});
+	}
 }
 
 new Dashboard();
