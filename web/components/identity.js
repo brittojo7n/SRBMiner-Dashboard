@@ -1,6 +1,6 @@
 import { make, text } from "../lib/dom.js";
 import { DASH } from "../lib/present.js";
-import { parseMinerUser, minerUserSource, cleanPoolAddress } from "../lib/user.js";
+import { parseMinerWallet, cleanPoolAddress } from "../lib/user.js";
 
 const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -66,83 +66,121 @@ function attachCopy(targetField) {
 
 export function createIdentity() {
 	const node = make("div", "identity");
-	const algo = field("Algo");
-	const pool = field("Pool");
-	const wallet = field("Wallet");
-	const walletCopy = attachCopy(wallet);
-	const worker = field("Worker");
-	const dAlgo1 = field("Algo 1");
-	const dWallet1 = field("Wallet 1");
-	const dCopy1 = attachCopy(dWallet1);
-	const dAlgo2 = field("Algo 2");
-	const dWallet2 = field("Wallet 2");
-	const dCopy2 = attachCopy(dWallet2);
+	const singleAlgo = field("Algo");
+	const singlePool = field("Pool");
+	const singleWallet = field("Wallet");
+	const singleWalletCopy = attachCopy(singleWallet);
 
-	algo.row.hidden = pool.row.hidden = worker.row.hidden = true;
-	dAlgo1.row.hidden = dWallet1.row.hidden = dAlgo2.row.hidden = dWallet2.row.hidden = true;
-	node.append(algo.row, pool.row, wallet.row, worker.row, dAlgo1.row, dWallet1.row, dAlgo2.row, dWallet2.row);
+	singleAlgo.row.hidden = singlePool.row.hidden = singleWallet.row.hidden = true;
+	node.append(singleAlgo.row, singlePool.row, singleWallet.row);
 
-	let lastKey = "";
+	const multiSlots = [];
+	const poolSlots = [];
 
-	const setItem = (fAlgo, fWall, copy, item, fb) => {
-		const w = item?.pool?.wallet ? parseMinerUser(item.pool.wallet).wallet || item.pool.wallet : "";
-		const name = item?.name || fb;
-		text(fAlgo.value, name); fAlgo.value.title = name;
-		text(fWall.value, w || DASH); fWall.value.title = w;
-		copy.setAddress(w);
-	};
+	function getMultiSlot(i) {
+		if (!multiSlots[i]) {
+			const num = i + 1;
+			const aField = field(`Algo ${num}`);
+			const pField = field(`Pool ${num}`);
+			const wField = field(`Wallet ${num}`);
+			const copy = attachCopy(wField);
+			node.append(aField.row, pField.row, wField.row);
+			multiSlots[i] = { aField, pField, wField, copy };
+		}
+		return multiSlots[i];
+	}
+
+	function getPoolSlot(i) {
+		if (!poolSlots[i]) {
+			const pField = field(`Pool ${i + 1}`);
+			node.appendChild(pField.row);
+			poolSlots[i] = pField;
+		}
+		return poolSlots[i];
+	}
 
 	return {
 		node,
 		set(next = {}) {
 			const algos = Array.isArray(next.algorithms) ? next.algorithms : [];
-			const isDual = algos.length >= 2;
+			const isMultiAlgo = algos.length >= 2;
+			const pools = Array.isArray(next.pools) && next.pools.length > 0 ? next.pools : (next.pool ? [next.pool] : []);
 
-			if (isDual) {
-				algo.row.hidden = wallet.row.hidden = true;
-				dAlgo1.row.hidden = dWallet1.row.hidden = dAlgo2.row.hidden = dWallet2.row.hidden = false;
-				setItem(dAlgo1, dWallet1, dCopy1, algos[0], "Algo 1");
-				setItem(dAlgo2, dWallet2, dCopy2, algos[1], "Algo 2");
-			} else {
-				dAlgo1.row.hidden = dWallet1.row.hidden = dAlgo2.row.hidden = dWallet2.row.hidden = true;
-				algo.row.hidden = !next.algo;
-				if (next.algo) { text(algo.value, next.algo); algo.value.title = next.algo; }
-			}
+			if (isMultiAlgo) {
+				singleAlgo.row.hidden = singlePool.row.hidden = singleWallet.row.hidden = true;
+				for (let i = 0; i < poolSlots.length; i++) poolSlots[i].row.hidden = true;
 
-			const clPool = cleanPoolAddress(next.pool);
-			pool.row.hidden = !clPool;
-			if (clPool) { text(pool.value, clPool); pool.value.title = clPool; }
+				for (let i = 0; i < algos.length; i++) {
+					const slot = getMultiSlot(i);
+					const item = algos[i];
+					const aName = item?.name || `Algo ${i + 1}`;
+					const pAddr = cleanPoolAddress(item?.pool?.address || pools[i] || pools[0] || "");
+					const wAddr = parseMinerWallet(item?.pool?.wallet || next.wallet || "");
 
-			if (isDual) {
-				const wk = next.worker || (algos[0]?.pool && parseMinerUser(algos[0].pool.wallet).worker) || (algos[1]?.pool && parseMinerUser(algos[1].pool.wallet).worker);
-				worker.row.hidden = !wk;
-				worker.row.classList.toggle("is-empty", !wk);
-				text(worker.value, wk || ""); worker.value.title = wk || "";
+					text(slot.aField.value, aName);
+					slot.aField.value.title = aName;
+					slot.aField.row.hidden = false;
+
+					text(slot.pField.value, pAddr || DASH);
+					slot.pField.value.title = pAddr || "";
+					slot.pField.row.hidden = !pAddr;
+
+					text(slot.wField.value, wAddr || DASH);
+					slot.wField.value.title = wAddr || "";
+					slot.wField.row.hidden = false;
+					slot.copy.setAddress(wAddr);
+				}
+
+				for (let i = algos.length; i < multiSlots.length; i++) {
+					multiSlots[i].aField.row.hidden = true;
+					multiSlots[i].pField.row.hidden = true;
+					multiSlots[i].wField.row.hidden = true;
+				}
 				return this;
 			}
 
-			const rawUser = typeof next === "string" ? next : (next.user || minerUserSource(next));
-			const parsed = parseMinerUser(rawUser);
-			if (typeof next === "object" && next !== null) {
-				if (!parsed.worker && next.worker) parsed.worker = String(next.worker).trim();
-				if (!parsed.wallet && next.wallet) parsed.wallet = String(next.wallet).trim();
+			for (let i = 0; i < multiSlots.length; i++) {
+				multiSlots[i].aField.row.hidden = true;
+				multiSlots[i].pField.row.hidden = true;
+				multiSlots[i].wField.row.hidden = true;
 			}
 
-			const nextKey = `${parsed.wallet}\0${parsed.worker || ""}\0${next.algo || ""}\0${clPool}`;
-			if (nextKey === lastKey) return this;
-			lastKey = nextKey;
+			singleAlgo.row.hidden = !next.algo;
+			if (next.algo) {
+				text(singleAlgo.value, next.algo);
+				singleAlgo.value.title = next.algo;
+			}
 
-			const addr = parsed.wallet || "";
-			text(wallet.value, addr || DASH);
-			wallet.value.title = addr;
-			wallet.row.hidden = false;
-			walletCopy.setAddress(addr);
+			if (pools.length > 1) {
+				singlePool.row.hidden = true;
+				for (let i = 0; i < pools.length; i++) {
+					const pSlot = getPoolSlot(i);
+					const pAddr = cleanPoolAddress(pools[i]);
+					text(pSlot.value, pAddr);
+					pSlot.value.title = pAddr;
+					pSlot.row.hidden = false;
+				}
+				for (let i = pools.length; i < poolSlots.length; i++) {
+					poolSlots[i].row.hidden = true;
+				}
+			} else {
+				for (let i = 0; i < poolSlots.length; i++) poolSlots[i].row.hidden = true;
+				const pAddr = cleanPoolAddress(pools[0] || next.pool || "");
+				singlePool.row.hidden = !pAddr;
+				if (pAddr) {
+					text(singlePool.value, pAddr);
+					singlePool.value.title = pAddr;
+				}
+			}
 
-			const hasWk = Boolean(parsed.worker);
-			text(worker.value, hasWk ? parsed.worker : "");
-			worker.value.title = hasWk ? parsed.worker : "";
-			worker.row.hidden = !hasWk;
-			worker.row.classList.toggle("is-empty", !hasWk);
+			const addr = parseMinerWallet(next.wallet || "");
+			singleWallet.row.hidden = !addr;
+			if (addr) {
+				text(singleWallet.value, addr);
+				singleWallet.value.title = addr;
+				singleWalletCopy.setAddress(addr);
+			}
+
 			return this;
 		},
 	};

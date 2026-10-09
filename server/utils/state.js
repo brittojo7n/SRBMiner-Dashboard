@@ -50,7 +50,7 @@ function getServerTz() {
 const SERVER_TZ = getServerTz();
 const HOSTNAME = os.hostname();
 
-function createState(wallet = "", maxLogs = 50, worker = null, user = "", algo = "", pool = "") {
+function createState(wallet = "", maxLogs = 50, algo = "", pool = "") {
 	return {
 		dirty: true,
 		startedAt: Date.now(),
@@ -64,9 +64,7 @@ function createState(wallet = "", maxLogs = 50, worker = null, user = "", algo =
 			lastLine: "",
 			lastError: "",
 			logs: new CircularLogBuffer(maxLogs),
-			user: user || "",
 			wallet,
-			worker: worker || null,
 			algo: algo || "",
 			pool: pool || "",
 		},
@@ -76,6 +74,10 @@ function createState(wallet = "", maxLogs = 50, worker = null, user = "", algo =
 			hashrateCpu: 0,
 			hashrateGpu: 0,
 			poolLatency: null,
+			poolLatencies: [],
+			consoleLatencies: Object.create(null),
+			apiLatencies: Object.create(null),
+			poolStates: Object.create(null),
 			accepted: 0,
 			submitted: 0,
 			rejected: 0,
@@ -83,7 +85,6 @@ function createState(wallet = "", maxLogs = 50, worker = null, user = "", algo =
 			status: STATUS.STOPPED,
 			lastAcceptedAt: null,
 			gpuHashrates: Object.create(null),
-			seenDevices: [],
 			pciMap: Object.create(null),
 			algorithms: [],
 			rigName: "",
@@ -106,6 +107,42 @@ function hashrateForGpu(state, gpu) {
 	return null;
 }
 
+function getPoolLatencies(state) {
+	const mining = state.mining;
+	const algos = mining.algorithms || [];
+	const isStopped = mining.status === STATUS.STOPPED;
+	const list = [];
+	if (algos.length > 0) {
+		for (let i = 0; i < algos.length; i++) {
+			const a = algos[i];
+			const cLat = mining.consoleLatencies ? mining.consoleLatencies[i] : null;
+			const aLat = mining.apiLatencies ? mining.apiLatencies[i] : (a.pool ? a.pool.latency : null);
+			const lat = cLat != null ? cLat : (aLat != null ? aLat : null);
+			const st = isStopped ? "stopped" : ((mining.poolStates && mining.poolStates[i]) || "connecting");
+			list.push({
+				id: i,
+				name: a.name || `Algo ${i + 1}`,
+				pool: (a.pool && a.pool.address) || "",
+				latency: lat,
+				status: st,
+			});
+		}
+	} else {
+		const cLat = mining.consoleLatencies ? mining.consoleLatencies[0] : null;
+		const aLat = mining.apiLatencies ? mining.apiLatencies[0] : null;
+		const lat = cLat != null ? cLat : (aLat != null ? aLat : mining.poolLatency);
+		const st = isStopped ? "stopped" : ((mining.poolStates && mining.poolStates[0]) || "connecting");
+		list.push({
+			id: 0,
+			name: "Pool 1",
+			pool: state.miner.pool || "",
+			latency: lat,
+			status: st,
+		});
+	}
+	return list;
+}
+
 function formatStatsSnapshot(state, options) {
 	const now = Date.now();
 	const { miner, mining } = state;
@@ -124,8 +161,7 @@ function formatStatsSnapshot(state, options) {
 		miner: {
 			running: miner.running, pid: miner.pid, startedAt: miner.startedAt,
 			exitCode: miner.exitCode, signal: miner.signal, lastLine: miner.lastLine,
-			lastError: miner.lastError, user: miner.user || "", wallet: miner.wallet,
-			worker: miner.worker || null, logs: entries,
+			lastError: miner.lastError, wallet: miner.wallet, logs: entries,
 			algo: miner.algo || "", pool: miner.pool || "",
 		},
 		logsFrom, logSeq: logs.seq, logCount: logs.length, logCapacity: logs.capacity,
@@ -135,6 +171,7 @@ function formatStatsSnapshot(state, options) {
 			hashrateCpu: mining.hashrateCpu,
 			hashrateGpu: mining.hashrateGpu,
 			poolLatency: mining.poolLatency,
+			poolLatencies: getPoolLatencies(state),
 			accepted: mining.accepted, submitted: mining.submitted,
 			rejected: mining.rejected, difficulty: mining.difficulty, status: mining.status,
 			lastAcceptedAt: mining.lastAcceptedAt,

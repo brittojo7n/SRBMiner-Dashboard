@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { resolveIdentity, cleanPoolAddress } = require("../../web/lib/user");
+const { resolveIdentity, cleanPoolAddress, parsePoolList } = require("../../web/lib/user");
 const { parseMinerArgs } = require("./args");
 
 const GPU_POLL_MS = 5000;
@@ -69,12 +69,11 @@ function buildConfig(env = process.env, opts = {}) {
 	const MINER_ARGS = splitArgs(env.MINER_ARGS);
 	const flags = parseMinerArgs(MINER_ARGS);
 	const explicitWallet = env.WALLET ? String(env.WALLET).trim() : "";
-	const explicitWorker = env.WORKER ? String(env.WORKER).trim() : "";
 	if (!flags.wallet && explicitWallet) flags.wallet = explicitWallet;
-	if (!flags.worker && explicitWorker) flags.worker = explicitWorker;
 	const identity = resolveIdentity(flags);
 	const ALGO = flags.algo || "";
-	const POOL = cleanPoolAddress(flags.pool || "");
+	const pools = parsePoolList(flags.pool || env.POOL || "");
+	const POOL = pools.length > 0 ? pools.join(", ") : "";
 
 	if (!MINER_ARGS.includes("--api-enable")) {
 		MINER_ARGS.push("--api-enable");
@@ -95,8 +94,8 @@ function buildConfig(env = process.env, opts = {}) {
 		PORT, HOST, GPU_POLL_MS, API_POLL_MS, API_PORT,
 		MINER_EXE, MINER_ARGS: Object.freeze(MINER_ARGS), MINER_CWD,
 		PASSPHRASE: env.PASSPHRASE || "", SESSION_SECRET: env.SESSION_SECRET || "",
-		USER: identity.user, WALLET: identity.wallet, WORKER: identity.worker,
-		ALGO, POOL,
+		WALLET: identity.wallet,
+		ALGO, POOL, POOLS: Object.freeze(pools),
 		FORWARD_CONSOLE: String(env.FORWARD_CONSOLE).toLowerCase() === "true",
 		warnings: Object.freeze(warnings),
 	});

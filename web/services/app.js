@@ -7,6 +7,7 @@ import * as gpuView from "../components/gpu.js";
 import * as cpuView from "../components/cpu.js";
 import { createMetric } from "../components/metric.js";
 import { createHashrateMetric } from "../components/hashrate.js";
+import { createLatencyMetric } from "../components/latency.js";
 import { createIdentity } from "../components/identity.js";
 import { createConsole } from "../components/console.js";
 import { createConnection } from "./connection.js";
@@ -66,7 +67,7 @@ function buildMiningMetrics(host) {
 		}),
 		spm: createMetric({ label: "Shares Per Minute", value: DASH, accent: "green", surface: 2 }),
 		difficulty: createMetric({ label: "Network Difficulty", value: DASH, accent: "violet", surface: 2 }),
-		lastAccepted: createMetric({ label: "Last Share", value: DASH, surface: 2, small: true }),
+		latency: createLatencyMetric({ label: "Pool Latency", surface: 2 }),
 	};
 	for (const k in cards) host.appendChild(cards[k].node);
 	return cards;
@@ -195,13 +196,12 @@ class Dashboard {
 		this.summary.ratio.set({ value: display.ratio });
 		this.mining.shares.set({ parts: { accepted: display.acceptedCount, rejected: display.rejected } });
 		this.mining.difficulty.set({ value: display.difficulty });
-		this.mining.lastAccepted.set({ value: display.lastAccepted });
+		this.mining.latency.set({ value: display.poolLatency, status: display.poolLatencyStatus, pools: display.poolLatencies });
 		this.identity.set({
-			user: snapshot.miner.user,
 			wallet: snapshot.miner.wallet,
-			worker: snapshot.miner.worker,
 			algo: display.algo,
 			pool: display.pool,
+			pools: display.pools,
 			algorithms: snapshot.mining.algorithms,
 		});
 		this.consoleView.render(snapshot.miner.logs, { count: snapshot.logCount, seq: snapshot.logSeq });

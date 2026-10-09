@@ -1,12 +1,16 @@
 const { STATUS, LOG } = require("../utils/constants");
 const { stripAnsi } = require("./devices");
+const { cleanPoolAddress } = require("../../web/lib/user");
 
-const RX_SRB_SHARE_ACC = /(?:CPU|GPU\d*)\s+share\s+accepted(?:\s*\[\s*(\d+)ms\])?/i;
-const RX_SRB_SHARE_REJ = /(?:CPU|GPU\d*)\s+share\s+rejected(?:\s*\[([^\]]+)\])?/i;
+const RX_SRB_SHARE_ACC = /(?:CPU|GPU\d*)(?:\[[^\]]*\])?\s+share\s+accepted(?:\s*\[\s*(\d+)ms\s*\])?(?:\s*\[([^\]]+)\])?(?:\s*\[(\d+)\])?/i;
+const RX_SRB_SHARE_REJ = /(?:CPU|GPU\d*)(?:\[[^\]]*\])?\s+share\s+rejected(?:\s*\[([^\]]+)\])?(?:\s*\[([^\]]+)\])?(?:\s*\[(\d+)\])?/i;
 const RX_SRB_TOTAL = /Total:\s*([\d.]+)\s*([kKMGT]?H\/s)(?:\s*\[.*?A:(\d+)\s+R:(\d+).*?\])?/i;
 const RX_SRB_DIFF = /Diff:\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)/i;
 const RX_SRB_LATENCY = /Latency:\s*~?(\d+)\s*ms/i;
-const RX_SRB_CONNECTED = /Connected to\s*([^\s]+)/i;
+const RX_SRB_CONNECTED = /(?:^|\]\s*)Connected to\s+([^\s\[]+)(?:.*?\[(\d+)\])?/i;
+const RX_SRB_RECONNECTING = /(?:^|\]\s*)Reconnecting to\s+([^\s]+)(?:.*?\[(\d+)\])?/i;
+const RX_SRB_NOT_CONNECTED = /(?:^|\]\s*)A(\d+)\s+not connected to a pool/i;
+const RX_SRB_COULDNT_CONNECT = /(?:^|\]\s*)(?:couldn't|failed to|unable to)\s+connect to pool\s*([^\s]+)?/i;
 const RX_DIFF = /difficulty(?:\s*(?:set|is))?\s*(?:to|:)?\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)/i;
 const RX_FATAL = /\b(?:cuda\s+error|failed\s+to|fatal|exception|enoent|out\s+of\s+memory)\b/i;
 const RX_POOL_DOWN = /stratum[\s_](?:connection\s+(?:failed|timed\s+out|interrupted)|recv_line\s+(?:timed\s+out|failed)|subscribe\s+(?:send\s+)?(?:failed|timed\s+out)|send_line\s+failed|authentication\s+failed|thread\s+create\s+failed)|json_rpc_call\s+failed|pool\s+connection\s+lost/i;
@@ -23,6 +27,26 @@ function toHashrateHz(val, unit) {
 function canSetRunStatus(state) {
 	const s = state.mining.status;
 	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED);
+}
+
+function findAlgoIndex(state, idxStr, poolOrAlgo) {
+	if (idxStr != null && idxStr !== "") {
+		const n = Number(idxStr);
+		if (Number.isFinite(n)) return n;
+	}
+	const algos = state.mining && state.mining.algorithms;
+	if (Array.isArray(algos) && poolOrAlgo) {
+		const cleanTarget = cleanPoolAddress(poolOrAlgo).toLowerCase();
+		for (let i = 0; i < algos.length; i++) {
+			const a = algos[i];
+			const p = cleanPoolAddress((a.pool && a.pool.address) || "").toLowerCase();
+			const n = String(a.name || "").toLowerCase();
+			if ((p && (p === cleanTarget || p.includes(cleanTarget) || cleanTarget.includes(p))) || (n && n === cleanTarget)) {
+				return i;
+			}
+		}
+	}
+	return 0;
 }
 
 function emitLog(state, pushLog, text, type) {
@@ -52,6 +76,9 @@ function parseMinerLine(raw, state, pushLog) {
 	const srbRejMatch = !srbAccMatch && RX_SRB_SHARE_REJ.exec(line);
 	const totalMatch = !srbAccMatch && !srbRejMatch && RX_SRB_TOTAL.exec(line);
 	const connMatch = !srbAccMatch && !srbRejMatch && !totalMatch && RX_SRB_CONNECTED.exec(line);
+	const reConnMatch = !srbAccMatch && !srbRejMatch && !totalMatch && !connMatch && RX_SRB_RECONNECTING.exec(line);
+	const notConnMatch = !srbAccMatch && !srbRejMatch && !totalMatch && !connMatch && !reConnMatch && RX_SRB_NOT_CONNECTED.exec(line);
+	const couldntMatch = !srbAccMatch && !srbRejMatch && !totalMatch && !connMatch && !reConnMatch && !notConnMatch && RX_SRB_COULDNT_CONNECT.exec(line);
 
 	if (RX_POOL_DOWN.test(line)) {
 		isFatal = true;
@@ -66,6 +93,10 @@ function parseMinerLine(raw, state, pushLog) {
 		type = LOG.ERROR;
 	} else if (connMatch) {
 		type = LOG.SUCCESS;
+	} else if (reConnMatch || notConnMatch) {
+		type = LOG.WARN;
+	} else if (couldntMatch) {
+		type = LOG.ERROR;
 	} else {
 		const lc = line.toLowerCase();
 		if (/(?:accepted:|share accepted|verified succes)/.test(lc) || lc.includes("connected to")) {
@@ -91,7 +122,17 @@ function parseMinerLine(raw, state, pushLog) {
 		mining.accepted = (mining.accepted || 0) + 1;
 		mining.submitted = (mining.submitted || 0) + 1;
 		mining.lastAcceptedAt = Date.now();
-		if (srbAccMatch[1]) mining.poolLatency = Number(srbAccMatch[1]);
+		const idx = findAlgoIndex(state, srbAccMatch[3], srbAccMatch[2]);
+		if (srbAccMatch[1]) {
+			const lat = Number(srbAccMatch[1]);
+			if (Number.isFinite(lat)) {
+				if (!mining.consoleLatencies) mining.consoleLatencies = Object.create(null);
+				mining.consoleLatencies[idx] = lat;
+				mining.poolLatency = lat;
+			}
+		}
+		if (!mining.poolStates) mining.poolStates = Object.create(null);
+		mining.poolStates[idx] = "connected";
 		if (canSetRunStatus(state)) {
 			mining.status = STATUS.MINING;
 			state.miner.lastError = "";
@@ -118,10 +159,46 @@ function parseMinerLine(raw, state, pushLog) {
 		}
 		state.dirty = true;
 	} else if (connMatch) {
+		const idx = findAlgoIndex(state, connMatch[2], connMatch[1]);
+		if (!mining.poolStates) mining.poolStates = Object.create(null);
+		mining.poolStates[idx] = "connected";
 		if (canSetRunStatus(state) && mining.status !== STATUS.MINING) {
 			mining.status = STATUS.CONNECTED;
-			state.dirty = true;
 		}
+		state.dirty = true;
+	}
+
+	if (reConnMatch) {
+		const idx = findAlgoIndex(state, reConnMatch[2], reConnMatch[1]);
+		if (!mining.poolStates) mining.poolStates = Object.create(null);
+		mining.poolStates[idx] = "reconnecting";
+		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
+		if (mining.apiLatencies) delete mining.apiLatencies[idx];
+		if (idx === 0) mining.poolLatency = null;
+		if (canSetRunStatus(state) && mining.status !== STATUS.MINING) {
+			mining.status = STATUS.WAITING;
+		}
+		state.dirty = true;
+	}
+
+	if (notConnMatch) {
+		const idx = findAlgoIndex(state, notConnMatch[1], null);
+		if (!mining.poolStates) mining.poolStates = Object.create(null);
+		mining.poolStates[idx] = "disconnected";
+		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
+		if (mining.apiLatencies) delete mining.apiLatencies[idx];
+		if (idx === 0) mining.poolLatency = null;
+		state.dirty = true;
+	}
+
+	if (couldntMatch) {
+		const idx = findAlgoIndex(state, null, couldntMatch[1]);
+		if (!mining.poolStates) mining.poolStates = Object.create(null);
+		mining.poolStates[idx] = "disconnected";
+		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
+		if (mining.apiLatencies) delete mining.apiLatencies[idx];
+		if (idx === 0) mining.poolLatency = null;
+		state.dirty = true;
 	}
 
 	const diffMatch = RX_SRB_DIFF.exec(line) || RX_DIFF.exec(line);

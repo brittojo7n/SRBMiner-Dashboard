@@ -2,7 +2,7 @@ const http = require("node:http");
 const { Poller } = require("../utils/timers");
 const { STATUS } = require("../utils/constants");
 const { normalizePci } = require("./devices");
-const { parseMinerUser, cleanPoolAddress } = require("../../web/lib/user");
+const { parseMinerWallet, cleanPoolAddress } = require("../../web/lib/user");
 
 const NUM_RE = /\d+/;
 
@@ -126,14 +126,34 @@ class ApiManager extends Poller {
 				? (totalCpuHr + totalGpuHr)
 				: totalHr;
 
+			for (let idx = 0; idx < json.algorithms.length; idx++) {
+				const algo = json.algorithms[idx];
+				const pool = algo.pool || {};
+				const hasConsoleLat = mining.consoleLatencies && mining.consoleLatencies[idx] != null;
+				if (!hasConsoleLat && pool.latency != null && Number.isFinite(pool.latency) && pool.latency >= 0) {
+					if (!mining.apiLatencies) mining.apiLatencies = Object.create(null);
+					mining.apiLatencies[idx] = pool.latency;
+				}
+				if (!mining.poolStates) mining.poolStates = Object.create(null);
+				if (!mining.poolStates[idx] || mining.poolStates[idx] === "connecting") {
+					if (pool.latency != null || pool.time_connected) {
+						mining.poolStates[idx] = "connected";
+					}
+				}
+			}
+
 			const primary = mining.algorithms[0];
 			if (primary && primary.pool) {
 				if (primary.pool.difficulty != null && primary.pool.difficulty > 0) mining.difficulty = primary.pool.difficulty;
-				if (primary.pool.latency != null && primary.pool.latency > 0) mining.poolLatency = primary.pool.latency;
-				if (primary.pool.wallet && (!this.state.miner.worker || !this.state.miner.wallet)) {
-					const parsed = parseMinerUser(primary.pool.wallet);
-					if (!this.state.miner.wallet && parsed.wallet) this.state.miner.wallet = parsed.wallet;
-					if (!this.state.miner.worker && parsed.worker) this.state.miner.worker = parsed.worker;
+				const hasConsolePrimary = mining.consoleLatencies && mining.consoleLatencies[0] != null;
+				if (!hasConsolePrimary && primary.pool.latency != null && Number.isFinite(primary.pool.latency) && primary.pool.latency >= 0) {
+					mining.poolLatency = primary.pool.latency;
+				} else if (hasConsolePrimary) {
+					mining.poolLatency = mining.consoleLatencies[0];
+				}
+				if (primary.pool.wallet && !this.state.miner.wallet) {
+					const w = parseMinerWallet(primary.pool.wallet);
+					if (w) this.state.miner.wallet = w;
 				}
 				if (mining.status !== STATUS.STOPPED && mining.status !== STATUS.STOPPING) {
 					mining.status = STATUS.MINING;
@@ -217,11 +237,15 @@ class ApiManager extends Poller {
 
 	stop() {
 		super.stop();
+		this.state.mining.apiLatencies = Object.create(null);
+		this.state.mining.consoleLatencies = Object.create(null);
+		this.state.mining.poolStates = Object.create(null);
+		this.state.mining.poolLatency = null;
 		if (this.state.cpu.length > 0 || (this.state.apiGpuDevices && this.state.apiGpuDevices.length > 0)) {
 			this.state.cpu = [];
 			this.state.apiGpuDevices = [];
-			this._notify();
 		}
+		this._notify();
 	}
 }
 

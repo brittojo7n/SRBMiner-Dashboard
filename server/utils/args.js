@@ -4,7 +4,6 @@ const VALUE_FLAGS = {
 	algoGpu: ["-ag", "--algorithm-gpu"],
 	pool: ["-o", "--pool", "--server", "--url"],
 	wallet: ["-u", "--wallet", "--user"],
-	worker: ["-w", "--worker"],
 	password: ["-p", "--password", "--pass"],
 	cpuThreads: ["-t", "--cpu-threads"],
 	cpuThreadsPriority: ["--cpu-threads-priority"],
@@ -56,6 +55,10 @@ function parseMinerArgs(args) {
 		if (eq > 1 && token.charCodeAt(0) === 45) {
 			name = token.slice(0, eq);
 			inline = token.slice(eq + 1);
+		}
+		if (name === "-w" || name === "--worker") {
+			if (inline === null && i + 1 < len && !args[i + 1].startsWith("-")) i++;
+			continue;
 		}
 		const spec = FLAG_INDEX[name];
 		if (!spec) continue;

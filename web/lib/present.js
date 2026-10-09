@@ -1,4 +1,4 @@
-import { cleanPoolAddress } from "./user.js";
+import { cleanPoolAddress, parsePoolList, parseMinerWallet } from "./user.js";
 
 export const DASH = "\u2014";
 const pad = (n) => String(n).padStart(2, "0");
@@ -46,16 +46,62 @@ export function formatEfficiency(eff) {
 	const val = num(eff / div, 2);
 	return { value: val, unit: u, text: `${val} ${u}` };
 }
+export function formatLatencyItem(entry, globalStatus) {
+	const status = entry?.status || (globalStatus === "STOPPED" ? "stopped" : "connecting");
+	const lat = entry?.latency;
+	if (status === "disconnected") {
+		return { text: "Disconnected", status: "danger", num: "Disconnected", unit: "" };
+	}
+	if (status === "reconnecting") {
+		return { text: "Reconnecting...", status: "warn", num: "Reconnecting...", unit: "" };
+	}
+	if (lat != null && Number.isFinite(lat) && lat >= 0) {
+		return { text: `${num(lat, 0)} ms`, status: null, num: num(lat, 0), unit: "ms" };
+	}
+	if (status === "connected") {
+		return { text: "Connected", status: null, num: "Connected", unit: "" };
+	}
+	if (status === "connecting" || globalStatus === "STARTING" || globalStatus === "WAITING" || globalStatus === "CONNECTED" || globalStatus === "MINING") {
+		return { text: "Connecting...", status: "warn", num: "Connecting...", unit: "" };
+	}
+	return { text: DASH, status: null, num: DASH, unit: "" };
+}
+
 export function presentSnapshot(snapshot, options = {}) {
 	const m = snapshot.mining;
+	const currentStatus = effectiveStatus(snapshot, options.pendingStatus || null);
 	const hasCpu = Number.isFinite(m.hashrateCpu) && m.hashrateCpu > 0;
 	const hasGpu = Number.isFinite(m.hashrateGpu) && m.hashrateGpu > 0;
 	const totalHz = (hasCpu || hasGpu)
 		? ((m.hashrateCpu || 0) + (m.hashrateGpu || 0))
 		: (m.hashrateTotal || (m.hashrateKHs ? m.hashrateKHs * 1000 : 0));
+	const poolsFromAlgos = (m.algorithms || [])
+		.map((a) => cleanPoolAddress(a.pool && a.pool.address))
+		.filter(Boolean);
+	const poolsFromMiner = parsePoolList(snapshot.miner.pool || "");
+	const allPools = poolsFromAlgos.length > 0 ? poolsFromAlgos : poolsFromMiner;
+
+	const poolLatencies = Array.isArray(m.poolLatencies) && m.poolLatencies.length > 0
+		? m.poolLatencies.map((entry, idx) => {
+			const formatted = formatLatencyItem(entry, currentStatus);
+			return {
+				id: entry.id ?? idx,
+				tag: `POOL ${idx + 1}`,
+				text: formatted.text,
+				num: formatted.num,
+				unit: formatted.unit,
+				status: formatted.status,
+			};
+		})
+		: [(() => {
+			const f = formatLatencyItem({ latency: m.poolLatency, status: currentStatus === "MINING" ? "connected" : currentStatus }, currentStatus);
+			return { id: 0, tag: "POOL 1", text: f.text, num: f.num, unit: f.unit, status: f.status };
+		})()];
+
+	const primaryLatency = poolLatencies[0] || { text: DASH, status: null };
 
 	return {
-		status: effectiveStatus(snapshot, options.pendingStatus || null),
+		status: currentStatus,
 		hashrate: formatHashrate(totalHz),
 		hashrateCpu: formatHashrate(m.hashrateCpu || 0),
 		hashrateGpu: formatHashrate(m.hashrateGpu || 0),
@@ -66,18 +112,16 @@ export function presentSnapshot(snapshot, options = {}) {
 		ratio: snapshot.acceptedRatio == null ? DASH : `${num(snapshot.acceptedRatio, 2)}%`,
 		rejected: String(m.rejected ?? 0),
 		difficulty: m.difficulty == null ? DASH : String(m.difficulty),
+		poolLatency: primaryLatency.text,
+		poolLatencyStatus: primaryLatency.status,
+		poolLatencies,
 		lastAccepted: m.lastAcceptedAt ? timestamp(m.lastAcceptedAt) : DASH,
-		user: snapshot.miner.user || "",
-		wallet: snapshot.miner.wallet || "",
-		worker: snapshot.miner.worker || null,
+		wallet: parseMinerWallet(snapshot.miner.wallet || ""),
 		algo: (m.algorithms && m.algorithms.length > 0)
 			? m.algorithms.map((a) => a.name).join(", ")
 			: (snapshot.miner.algo || ""),
-		pool: cleanPoolAddress(
-			(m.algorithms && m.algorithms[0] && m.algorithms[0].pool && m.algorithms[0].pool.address)
-				? m.algorithms[0].pool.address
-				: (snapshot.miner.pool || "")
-		),
+		pool: allPools[0] || "",
+		pools: allPools,
 		host: snapshot.host.hostname || "",
 	};
 }
@@ -102,10 +146,8 @@ export function presentGpu(gpu, opts = {}) {
 		hashrate: formatHashrate(gpu.hashrate),
 		eff: effParsed.value,
 		effUnit: effParsed.unit,
-		effFormatted: effParsed.text,
 		hasUtil,
 		util: hasUtil ? num(gpu.utilizationPct, 0) : DASH,
 		barScale: util / 100,
-		fromApiOnly: !!gpu.fromApiOnly,
 	};
 }
