@@ -196,6 +196,7 @@ class Dashboard {
       worker: snapshot.miner.worker,
       algo: display.algo,
       pool: display.pool,
+      algorithms: snapshot.mining.algorithms,
     });
     this.consoleView.render(snapshot.miner.logs, { count: snapshot.logCount, seq: snapshot.logSeq });
     if (snapshot.miner.lastError) {
