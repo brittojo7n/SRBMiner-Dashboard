@@ -12,7 +12,7 @@ const RX_SRB_RECONNECTING = /(?:^|\]\s*)Reconnecting to\s+([^\s]+)(?:.*?\[(\d+)\
 const RX_SRB_NOT_CONNECTED = /(?:^|\]\s*)A(\d+)\s+not connected to a pool/i;
 const RX_SRB_COULDNT_CONNECT = /(?:^|\]\s*)(?:couldn't|failed to|unable to)\s+connect to pool\s*([^\s]+)?/i;
 const RX_DIFF = /difficulty(?:\s*(?:set|is))?\s*(?:to|:)?\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)/i;
-const RX_FATAL = /\b(?:cuda\s+error|failed\s+to|fatal|exception|enoent|out\s+of\s+memory)\b/i;
+const RX_FATAL = /\b(?:cuda\s+error|failed\s+to|fatal|exception|enoent|out\s+of\s+memory|thread\s+.*?stopped|gpu.*?stopped)\b/i;
 const RX_POOL_DOWN = /stratum[\s_](?:connection\s+(?:failed|timed\s+out|interrupted)|recv_line\s+(?:timed\s+out|failed)|subscribe\s+(?:send\s+)?(?:failed|timed\s+out)|send_line\s+failed|authentication\s+failed|thread\s+create\s+failed)|json_rpc_call\s+failed|pool\s+connection\s+lost/i;
 
 function toHashrateHz(val, unit) {
@@ -26,7 +26,7 @@ function toHashrateHz(val, unit) {
 
 function canSetRunStatus(state) {
 	const s = state.mining.status;
-	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED);
+	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED && s !== STATUS.CRASHED);
 }
 
 function findAlgoIndex(state, idxStr, poolOrAlgo) {

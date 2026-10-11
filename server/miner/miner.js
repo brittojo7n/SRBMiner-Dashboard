@@ -66,6 +66,19 @@ class MinerManager {
 		this._probe = null;
 		this._logServer = null;
 		this._pushLogBound = (text, type) => this.pushLog(text, type);
+		this._watchdog = setInterval(() => this._checkHealth(), 15000);
+		if (this._watchdog.unref) this._watchdog.unref();
+	}
+
+	_checkHealth() {
+		if (!this.state.miner.running || this._spawning || this._stopPromise) return;
+		const m = this.state.mining;
+		const now = Date.now();
+		const uptime = now - (this.state.miner.startedAt || now);
+		if (m.status === STATUS.CRASHED || (uptime > 180000 && m.hashrateTotal === 0)) {
+			this.pushLog("Watchdog: Restarting miner due to error or 0 hashrate.", LOG.WARN);
+			this.requestAction("restart");
+		}
 	}
 
 	_emit() {
@@ -197,6 +210,7 @@ class MinerManager {
 			return;
 		}
 		const safeArgs = sanitizeArgs(MINER_ARGS);
+		["--extended-log", "--enable-restart-on-rejected"].forEach(a => { if (!safeArgs.includes(a)) safeArgs.push(a); });
 		if (this._logServer) {
 			try { this._logServer.close(); } catch {}
 			this._logServer = null;
@@ -425,6 +439,7 @@ class MinerManager {
 	}
 
 	dispose() {
+		clearInterval(this._watchdog);
 		this._clearScheduledAction();
 		clearTimeout(this._forceKillTimer);
 		this._forceKillTimer = null;
