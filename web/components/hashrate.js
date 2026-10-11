@@ -28,9 +28,6 @@ export function createHashrateMetric(opts = {}) {
 
 	function createRow(algoName, leftTag, leftVal, rightTag, rightVal) {
 		const row = make("div", "hashrate-algo-row");
-		row.style.display = "flex";
-		row.style.flexDirection = "column";
-		row.style.gap = "4px";
 
 		if (algoName) {
 			const aName = make("div", "metric-device-tag", algoName);
@@ -39,7 +36,6 @@ export function createHashrateMetric(opts = {}) {
 		}
 
 		const dualBox = make("div", "hashrate-dual");
-		dualBox.style.display = "flex";
 
 		const lSlot = make("div", "hashrate-slot");
 		const lTag = make("span", "slot-tag", leftTag);

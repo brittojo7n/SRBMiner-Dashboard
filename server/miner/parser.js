@@ -129,37 +129,19 @@ function parseMinerLine(raw, state, pushLog) {
 	emitLog(state, pushLog, source.replace(/\r?\n$/, ""), type);
 
 	if (srbAccMatch) {
-		mining.accepted = (mining.accepted || 0) + 1;
-		mining.submitted = (mining.submitted || 0) + 1;
-		mining.lastAcceptedAt = Date.now();
 		const idx = findAlgoIndex(state, srbAccMatch[3], srbAccMatch[2]);
-		if (srbAccMatch[1]) {
-			const lat = Number(srbAccMatch[1]);
-			if (Number.isFinite(lat)) {
-				if (!mining.consoleLatencies) mining.consoleLatencies = Object.create(null);
-				mining.consoleLatencies[idx] = lat;
-				mining.poolLatency = lat;
-			}
-		}
 		setPoolState(mining, idx, "connected", state);
 		if (canSetRunStatus(state)) {
 			mining.status = STATUS.MINING;
 			state.miner.lastError = "";
 		}
 	} else if (srbRejMatch) {
-		mining.rejected = (mining.rejected || 0) + 1;
-		mining.submitted = (mining.submitted || 0) + 1;
 		state.dirty = true;
 	} else if (totalMatch) {
 		const hz = toHashrateHz(Number(totalMatch[1]), totalMatch[2]);
 		if (Number.isFinite(hz)) {
 			mining.hashrateTotal = hz;
 			mining.hashrateKHs = hz / 1000;
-		}
-		if (totalMatch[3] && totalMatch[4]) {
-			mining.accepted = Number(totalMatch[3]);
-			mining.rejected = Number(totalMatch[4]);
-			mining.submitted = mining.accepted + mining.rejected;
 		}
 		if (canSetRunStatus(state)) {
 			mining.status = STATUS.MINING;

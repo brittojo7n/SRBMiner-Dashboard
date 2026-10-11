@@ -29,8 +29,8 @@ export function dotClass(status) {
 	return status === "MINING" || status === "CONNECTED" ? "dot ok" : "dot warn";
 }
 export function sharesPerMinute(accepted, elapsedMs) {
-	const spm = elapsedMs > 0 ? accepted / (elapsedMs / 60000) : accepted;
-	return spm > 0 ? num(spm, 3) : DASH;
+	if (elapsedMs <= 0) return DASH;
+	return num(accepted / (elapsedMs / 60000), 3);
 }
 export function formatHashrate(h) {
 	if (h == null || !Number.isFinite(h) || h === 0) return DASH;

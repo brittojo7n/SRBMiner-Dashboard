@@ -124,10 +124,8 @@ class Dashboard {
 		if (this.startedAt) {
 			const elapsed = Math.max(0, now - this.startedAt);
 			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)), subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
-			this.mining.spm.set({ value: sharesPerMinute(this.accepted, elapsed) });
 		} else {
 			this.summary.uptime.set({ value: DASH, subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
-			this.mining.spm.set({ value: DASH });
 		}
 	}
 
@@ -197,6 +195,18 @@ class Dashboard {
 		this.summary.accepted.set({ value: display.accepted });
 		this.summary.ratio.set({ value: display.ratio });
 		this.mining.shares.set({ parts: { accepted: display.acceptedCount, rejected: display.rejected } });
+		
+		let maxUptime = 0;
+		if (snapshot.mining.algorithms && snapshot.mining.algorithms.length > 0) {
+			maxUptime = Math.max(...snapshot.mining.algorithms.map(a => (a.pool && a.pool.uptime) || 0));
+		}
+		
+		if (maxUptime > 0) {
+			this.mining.spm.set({ value: sharesPerMinute(this.accepted, maxUptime * 1000) });
+		} else {
+			this.mining.spm.set({ value: this.startedAt ? sharesPerMinute(this.accepted, Math.max(0, this.serverNow - this.startedAt)) : DASH });
+		}
+
 		this.mining.difficulty.set({ value: display.difficulty });
 		this.mining.latency.set({ value: display.poolLatency, status: display.poolLatencyStatus, pools: display.poolLatencies });
 		this.identity.set({

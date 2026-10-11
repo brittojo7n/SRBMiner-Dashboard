@@ -134,8 +134,12 @@ class ApiManager extends Poller {
 				};
 			});
 
-			mining.accepted = Math.max(mining.accepted || 0, totalAcc);
-			mining.rejected = Math.max(mining.rejected || 0, totalRej);
+			if (totalAcc > (mining.accepted || 0)) {
+				mining.lastAcceptedAt = Date.now();
+			}
+
+			mining.accepted = totalAcc;
+			mining.rejected = totalRej;
 			mining.submitted = mining.accepted + mining.rejected;
 			mining.hashrateCpu = totalCpuHr;
 			mining.hashrateGpu = totalGpuHr;
