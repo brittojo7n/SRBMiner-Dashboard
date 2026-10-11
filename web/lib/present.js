@@ -105,6 +105,14 @@ export function presentSnapshot(snapshot, options = {}) {
 		hashrate: formatHashrate(totalHz),
 		hashrateCpu: formatHashrate(m.hashrateCpu || 0),
 		hashrateGpu: formatHashrate(m.hashrateGpu || 0),
+		algoHashrates: (m.algorithms || []).map(a => ({
+			name: a.name || "Unknown",
+			total: formatHashrate((a.hashrate?.cpu?.total || 0) + (a.hashrate?.gpu?.total || 0)),
+			cpu: formatHashrate(a.hashrate?.cpu?.total || 0),
+			gpu: formatHashrate(a.hashrate?.gpu?.total || 0),
+			hasCpu: (a.hashrate?.cpu?.total || 0) > 0,
+			hasGpu: (a.hashrate?.gpu?.total || 0) > 0,
+		})),
 		hasCpuMining: hasCpu,
 		hasGpuMining: hasGpu,
 		accepted: m.submitted === 0 ? DASH : `${m.accepted} / ${m.submitted}`,
@@ -131,8 +139,11 @@ export function presentGpu(gpu, opts = {}) {
 	const effParsed = formatEfficiency(eff);
 	const hasUtil = gpu.utilizationPct != null;
 	const util = hasUtil ? Math.max(0, Math.min(100, gpu.utilizationPct)) : 0;
+	const name = `GPU ${gpu.index} \u2022 ${gpu.name || "Unknown"}`;
+	const algo = (gpu.algos && gpu.algos.length > 0) ? gpu.algos.join(" + ") : (opts.defaultAlgo || "");
 	return {
-		name: `GPU ${gpu.index} \u2022 ${gpu.name || "Unknown"}`,
+		name,
+		algo,
 		pstate: gpu.pstate || null,
 		hasPstate: gpu.pstate != null && gpu.pstate !== "",
 		temp: gpu.temperatureC != null ? `${num(gpu.temperatureC, 0)}\u00b0C` : DASH,

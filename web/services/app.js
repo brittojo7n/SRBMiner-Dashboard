@@ -191,6 +191,7 @@ class Dashboard {
 			hashrateCpu: display.hashrateCpu,
 			hasGpuMining: display.hasGpuMining,
 			hasCpuMining: display.hasCpuMining,
+			algoHashrates: display.algoHashrates,
 		});
 		this.summary.accepted.set({ value: display.accepted });
 		this.summary.ratio.set({ value: display.ratio });
@@ -233,13 +234,13 @@ class Dashboard {
 		} else if (!snapshot.gpuError) {
 			this.lastGpuError = null;
 		}
-		cpuView.render(this.els.cpus, snapshot.cpu);
+		cpuView.render(this.els.cpus, snapshot.cpu, { defaultAlgo: display.algo });
 		if (snapshot.gpu && snapshot.gpu.length > 0) {
 			if (this.els.gpuSection) this.els.gpuSection.style.display = "block";
-			gpuView.render(this.els.gpus, snapshot.gpu, snapshot.gpuError);
+			gpuView.render(this.els.gpus, snapshot.gpu, snapshot.gpuError, { defaultAlgo: display.algo });
 		} else {
 			if (this.els.gpuSection) this.els.gpuSection.style.display = "none";
-			gpuView.render(this.els.gpus, [], snapshot.gpuError);
+			gpuView.render(this.els.gpus, [], snapshot.gpuError, { defaultAlgo: display.algo });
 		}
 	}
 

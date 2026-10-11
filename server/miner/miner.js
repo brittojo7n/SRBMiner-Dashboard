@@ -95,6 +95,8 @@ class MinerManager {
 	_resetStats() {
 		this._setMining({ ...CLEAN_STATS });
 		this.state.mining.gpuHashrates = Object.create(null);
+		this.state.mining.gpuAlgos = Object.create(null);
+		this.state.mining.gpuAlgoHashrates = Object.create(null);
 		this.state.mining.seenDevices = [];
 	}
 

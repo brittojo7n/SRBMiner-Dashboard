@@ -40,11 +40,14 @@ function rememberGpuCount(n) {
 function buildCard(spec = DEFAULT_SPEC) {
 	const panel = make("div", "gpu-panel");
 	const head = make("div", "gpu-head");
+	const info = make("div", "gpu-head-info");
 	const name = make("div", "gpu-name");
-	head.appendChild(name);
+	const subtitle = make("div", "gpu-subtext");
+	info.append(name, subtitle);
+	head.appendChild(info);
 
 	const metrics = make("div", "metrics mt-0");
-	const refs = { name };
+	const refs = { name, subtitle };
 	for (let i = 0; i < spec.metrics.length; i++) {
 		const m = spec.metrics[i];
 		const metric = createMetric({
@@ -75,6 +78,7 @@ function buildCard(spec = DEFAULT_SPEC) {
 
 function resetCard(card, spec) {
 	text(card.refs.name, "Detecting GPUs\u2026");
+	card.refs.subtitle.textContent = "";
 	for (let i = 0; i < spec.metrics.length; i++) {
 		const m = spec.metrics[i];
 		const metric = card.refs[m.key];
@@ -115,7 +119,8 @@ function showNotice(container, gpuError, spec) {
 	container.appendChild(box);
 }
 
-export function render(container, gpus, gpuError, spec = DEFAULT_SPEC) {
+export function render(container, gpus, gpuError, opts = {}) {
+	const spec = { ...DEFAULT_SPEC, ...opts };
 	if (!gpus || gpus.length === 0) {
 		showNotice(container, gpuError, spec);
 		return;
@@ -132,9 +137,17 @@ export function render(container, gpus, gpuError, spec = DEFAULT_SPEC) {
 		hasPlaceholder = false;
 	}
 	for (let i = 0; i < gpus.length; i++) {
-		const v = presentGpu(gpus[i], spec.tempLevels);
+		const v = presentGpu(gpus[i], spec);
 		const r = cards[i].refs;
 		text(r.name, v.name);
+		r.subtitle.textContent = "";
+		if (v.algo) {
+			const tag = make("span", "gpu-algo-tag", v.algo);
+			r.subtitle.appendChild(tag);
+			r.subtitle.style.display = "flex";
+		} else {
+			r.subtitle.style.display = "none";
+		}
 		for (let j = 0; j < spec.metrics.length; j++) {
 			const m = spec.metrics[j];
 			const metric = r[m.key];

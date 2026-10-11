@@ -85,6 +85,8 @@ function createState(wallet = "", maxLogs = 50, algo = "", pool = "") {
 			status: STATUS.STOPPED,
 			lastAcceptedAt: null,
 			gpuHashrates: Object.create(null),
+			gpuAlgos: Object.create(null),
+			gpuAlgoHashrates: Object.create(null),
 			pciMap: Object.create(null),
 			algorithms: [],
 			rigName: "",
@@ -101,7 +103,21 @@ function hashrateForGpu(state, gpu) {
 	const mapped = state.mining.pciMap[gpu.pciBusId];
 	const devIndex = gpu.minerId != null ? gpu.minerId : (mapped !== undefined ? mapped : gpu.index);
 	const rates = state.mining.gpuHashrates;
+	const algos = state.mining.gpuAlgos ? (state.mining.gpuAlgos[devIndex] ?? state.mining.gpuAlgos[`gpu${devIndex}`]) : null;
+	const algoHashrates = state.mining.gpuAlgoHashrates ? (state.mining.gpuAlgoHashrates[devIndex] ?? state.mining.gpuAlgoHashrates[`gpu${devIndex}`]) : null;
 	const direct = rates[`gpu${devIndex}`] ?? rates[`cu_${devIndex}`] ?? rates[`cl_${devIndex}`] ?? rates[devIndex];
+	
+	if (algos && algos.length > 0) {
+		gpu.algos = algos;
+	} else if (state.mining.algorithms && state.mining.algorithms.length === 1 && state.mining.algorithms[0].name) {
+		gpu.algos = [state.mining.algorithms[0].name];
+	} else if (state.miner.algo) {
+		gpu.algos = [state.miner.algo];
+	}
+	if (algoHashrates) {
+		gpu.algoHashrates = algoHashrates;
+	}
+
 	if (direct !== undefined) return direct;
 	if (state.gpu.length === 1 && state.mining.hashrateGpu > 0) return state.mining.hashrateGpu;
 	return null;

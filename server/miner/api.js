@@ -56,6 +56,9 @@ class ApiManager extends Poller {
 
 		if (Array.isArray(json.algorithms) && json.algorithms.length > 0) {
 			let totalAcc = 0, totalRej = 0, totalHr = 0, totalCpuHr = 0, totalGpuHr = 0;
+			
+			mining.gpuAlgos = Object.create(null);
+			mining.gpuAlgoHashrates = Object.create(null);
 
 			mining.algorithms = json.algorithms.map((algo, idx) => {
 				const pool = algo.pool || {};
@@ -77,14 +80,25 @@ class ApiManager extends Poller {
 					for (const key in gpuHr) {
 						if (key !== "total") {
 							const val = gpuHr[key];
-							mining.gpuHashrates[key] = val;
+							mining.gpuHashrates[key] = val; // fallback
 							const numMatch = NUM_RE.exec(key);
+							let id = null;
 							if (numMatch) {
-								const id = numMatch[0];
+								id = numMatch[0];
 								mining.gpuHashrates[`cu_${id}`] = val;
 								mining.gpuHashrates[`cl_${id}`] = val;
 								mining.gpuHashrates[id] = val;
 							}
+							
+							const algoName = algo.name || `Algo ${idx}`;
+							const actualId = id !== null ? id : key;
+							if (!mining.gpuAlgos[actualId]) mining.gpuAlgos[actualId] = [];
+							if (!mining.gpuAlgos[actualId].includes(algoName)) {
+								mining.gpuAlgos[actualId].push(algoName);
+							}
+
+							if (!mining.gpuAlgoHashrates[actualId]) mining.gpuAlgoHashrates[actualId] = [];
+							mining.gpuAlgoHashrates[actualId].push(val);
 						}
 					}
 				}
@@ -169,15 +183,27 @@ class ApiManager extends Poller {
 		if (json.total_cpu_workers > 0 && Array.isArray(json.cpu_devices) && json.cpu_devices.length > 0) {
 			let aggCpuHr = 0;
 			const aggThreads = {};
+			const cpuAlgos = [];
 			if (Array.isArray(json.algorithms)) {
 				for (let i = 0; i < json.algorithms.length; i++) {
 					const a = json.algorithms[i];
-					if (a.hashrate && a.hashrate.cpu) {
-						aggCpuHr += a.hashrate.cpu.total || 0;
-						for (const k in a.hashrate.cpu) {
-							if (k !== "total") aggThreads[k] = (aggThreads[k] || 0) + a.hashrate.cpu[k];
+					const aCpu = a.hashrate && a.hashrate.cpu;
+					if (aCpu) {
+						const hrVal = aCpu.total || 0;
+						aggCpuHr += hrVal;
+						for (const k in aCpu) {
+							if (k !== "total") aggThreads[k] = (aggThreads[k] || 0) + aCpu[k];
+						}
+						if (hrVal > 0 || Object.keys(aCpu).length > 1 || (a.cpu_power != null && a.cpu_power > 0)) {
+							const aName = a.name || `Algo ${i}`;
+							if (!cpuAlgos.includes(aName)) cpuAlgos.push(aName);
 						}
 					}
+				}
+				if (cpuAlgos.length === 0 && json.algorithms.length > 0) {
+					const candidate = json.algorithms.find((a) => a.hashrate && a.hashrate.cpu && Object.keys(a.hashrate.cpu).length > 0);
+					if (candidate && candidate.name) cpuAlgos.push(candidate.name);
+					else if (json.algorithms.length === 1 && json.algorithms[0].name) cpuAlgos.push(json.algorithms[0].name);
 				}
 			}
 
@@ -190,6 +216,7 @@ class ApiManager extends Poller {
 				packagePowerW: cpu.package_power || 0,
 				hashrate: aggCpuHr,
 				threads: aggThreads,
+				algos: cpuAlgos,
 			}));
 			changed = true;
 		} else if (this.state.cpu.length > 0) {

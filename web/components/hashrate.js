@@ -6,40 +6,16 @@ export function createHashrateMetric(opts = {}) {
 
 	const node = make("div", "metric metric-hashrate");
 	node.classList.add(surface === 1 ? "metric--card" : "metric--tile");
+	node.style.flexDirection = "column";
 
 	const labelEl = make("div", "metric-label", label);
-	const indicatorEl = make("div", "metric-device-tag", "");
-	indicatorEl.style.display = "none";
-
-	const singleBox = make("div", "metric-value accent-cyan");
-	const singleNum = make("span", "metric-num", DASH);
-	const singleUnit = make("span", "metric-unit", "");
-	singleBox.append(singleNum, singleUnit);
-
-	const dualBox = make("div", "hashrate-dual");
-	dualBox.style.display = "none";
-
-	const gpuSlot = make("div", "hashrate-slot");
-	const gpuTag = make("span", "slot-tag", "GPU");
-	const gpuVal = make("div", "slot-val accent-cyan");
-	const gpuNum = make("span", "metric-num", DASH);
-	const gpuUnit = make("span", "metric-unit", "");
-	gpuVal.append(gpuNum, gpuUnit);
-	gpuSlot.append(gpuTag, gpuVal);
-
-	const divider = make("div", "hashrate-divider");
-
-	const cpuSlot = make("div", "hashrate-slot");
-	const cpuTag = make("span", "slot-tag", "CPU");
-	const cpuVal = make("div", "slot-val accent-cyan");
-	const cpuNum = make("span", "metric-num", DASH);
-	const cpuUnit = make("span", "metric-unit", "");
-	cpuVal.append(cpuNum, cpuUnit);
-	cpuSlot.append(cpuTag, cpuVal);
-
-	dualBox.append(gpuSlot, divider, cpuSlot);
-
-	node.append(labelEl, indicatorEl, singleBox, dualBox);
+	const contentBox = make("div", "hashrate-content");
+	contentBox.style.display = "flex";
+	contentBox.style.flexDirection = "column";
+	contentBox.style.gap = "8px";
+	contentBox.style.width = "100%";
+	
+	node.append(labelEl, contentBox);
 
 	function parseHr(hrStr) {
 		if (!hrStr || hrStr === DASH) return { num: DASH, unit: "" };
@@ -50,49 +26,83 @@ export function createHashrateMetric(opts = {}) {
 		return { num: hrStr, unit: "" };
 	}
 
+	function createRow(algoName, leftTag, leftVal, rightTag, rightVal) {
+		const row = make("div", "hashrate-algo-row");
+		row.style.display = "flex";
+		row.style.flexDirection = "column";
+		row.style.gap = "4px";
+
+		if (algoName) {
+			const aName = make("div", "metric-device-tag", algoName);
+			aName.style.alignSelf = "flex-start";
+			row.append(aName);
+		}
+
+		const dualBox = make("div", "hashrate-dual");
+		dualBox.style.display = "flex";
+
+		const lSlot = make("div", "hashrate-slot");
+		const lTag = make("span", "slot-tag", leftTag);
+		const lValEl = make("div", "slot-val accent-cyan");
+		const lNum = make("span", "metric-num", leftVal.num);
+		const lUnit = make("span", "metric-unit", leftVal.unit);
+		lValEl.append(lNum, lUnit);
+		
+		if (leftTag) lSlot.append(lTag);
+		lSlot.append(lValEl);
+		dualBox.append(lSlot);
+
+		if (rightTag && rightVal) {
+			const divider = make("div", "hashrate-divider");
+			const rSlot = make("div", "hashrate-slot");
+			const rTag = make("span", "slot-tag", rightTag);
+			const rValEl = make("div", "slot-val accent-cyan");
+			const rNum = make("span", "metric-num", rightVal.num);
+			const rUnit = make("span", "metric-unit", rightVal.unit);
+			rValEl.append(rNum, rUnit);
+			rSlot.append(rTag, rValEl);
+			dualBox.append(divider, rSlot);
+		}
+
+		row.append(dualBox);
+		return row;
+	}
+
 	return {
 		node,
 		set(data = {}) {
-			const { hasCpuMining, hasGpuMining, hashrateCpu, hashrateGpu, hashrate } = data;
+			const { hasCpuMining, hasGpuMining, hashrateCpu, hashrateGpu, hashrate, algoHashrates } = data;
+			contentBox.innerHTML = "";
 
-			if (hasCpuMining && hasGpuMining) {
-				singleBox.style.display = "none";
-				dualBox.style.display = "flex";
-				indicatorEl.style.display = "none";
-
-				const g = parseHr(hashrateGpu);
-				text(gpuNum, g.num);
-				text(gpuUnit, g.unit);
-
-				const c = parseHr(hashrateCpu);
-				text(cpuNum, c.num);
-				text(cpuUnit, c.unit);
+			if (algoHashrates && algoHashrates.length > 0) {
+				algoHashrates.forEach(a => {
+					let row;
+					if (a.hasCpu && a.hasGpu) {
+						row = createRow(a.name, "GPU", parseHr(a.gpu), "CPU", parseHr(a.cpu));
+					} else if (a.hasGpu) {
+						row = createRow(a.name, "GPU", parseHr(a.gpu));
+					} else if (a.hasCpu) {
+						row = createRow(a.name, "CPU", parseHr(a.cpu));
+					} else {
+						row = createRow(a.name, "", parseHr(a.total));
+					}
+					contentBox.append(row);
+				});
 			} else {
-				dualBox.style.display = "none";
-				singleBox.style.display = "flex";
-
-				let targetHr = hashrate;
-				let tagText = "";
-
-				if (hasGpuMining) {
-					tagText = "GPU";
-					targetHr = hashrateGpu || hashrate;
+				// Fallback
+				let row;
+				if (hasCpuMining && hasGpuMining) {
+					row = createRow("", "GPU", parseHr(hashrateGpu), "CPU", parseHr(hashrateCpu));
+				} else if (hasGpuMining) {
+					row = createRow("", "GPU", parseHr(hashrateGpu || hashrate));
 				} else if (hasCpuMining) {
-					tagText = "CPU";
-					targetHr = hashrateCpu || hashrate;
-				}
-
-				if (tagText) {
-					text(indicatorEl, tagText);
-					indicatorEl.style.display = "";
+					row = createRow("", "CPU", parseHr(hashrateCpu || hashrate));
 				} else {
-					indicatorEl.style.display = "none";
+					row = createRow("", "", parseHr(hashrate));
 				}
-
-				const s = parseHr(targetHr);
-				text(singleNum, s.num);
-				text(singleUnit, s.unit);
+				contentBox.append(row);
 			}
+
 			return this;
 		},
 	};
