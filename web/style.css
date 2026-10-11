@@ -211,12 +211,14 @@ button, input, select, textarea { font-family: inherit; }
 .metric--tile { background: var(--surface-2); border-radius: var(--radius-sm); }
 .metric--util { grid-column: 1 / -1; }
 
-.metric-label {
-  color: var(--text-secondary);
+.metric-label, .metric-subtext {
   font-size: var(--fs-label);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+.metric-label {
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 .metric-value {
@@ -239,6 +241,10 @@ button, input, select, textarea { font-family: inherit; }
 .metric--card .metric-unit { font-size: 14px; }
 .metric-part { display: inline-flex; align-items: baseline; gap: 4px; }
 .metric-sep { color: var(--text-primary); font-weight: 600; opacity: 0.85; user-select: none; }
+.metric-hr { border: none; border-top: 1px solid rgba(var(--white-rgb), 0.1); margin: 12px 0; }
+.metric-subtext { opacity: 0.85; }
+.metric-sub-label { color: var(--amber); margin-right: 4px; }
+.metric-sub-value { color: var(--white); font-weight: 600; }
 
 .metric-device-tag {
   display: inline-block;
@@ -835,7 +841,7 @@ button, input, select, textarea { font-family: inherit; }
   .metric--card, .metric--tile { padding: 12px; }
   .metric--card .metric-value { font-size: 20px; letter-spacing: -0.5px; }
   .metric--card .metric-unit { font-size: 12px; }
-  .metric-label { font-size: 10.5px; letter-spacing: 0.5px; }
+  .metric-label, .metric-subtext { font-size: 10.5px; letter-spacing: 0.5px; }
   .metric--tile .metric-value { font-size: 14px; }
   .metric--small .metric-value { font-size: 12px; }
 

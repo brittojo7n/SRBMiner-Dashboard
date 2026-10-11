@@ -80,7 +80,7 @@ class ApiManager extends Poller {
 					for (const key in gpuHr) {
 						if (key !== "total") {
 							const val = gpuHr[key];
-							mining.gpuHashrates[key] = val; // fallback
+							mining.gpuHashrates[key] = val;
 							const numMatch = NUM_RE.exec(key);
 							let id = null;
 							if (numMatch) {

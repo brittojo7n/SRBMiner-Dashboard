@@ -34,6 +34,7 @@ export function createMetric(opts = {}) {
 		parts = null,
 		small = false,
 		cls = "",
+		subtext = false,
 	} = opts;
 
 	const node = make("div", "metric");
@@ -99,6 +100,17 @@ export function createMetric(opts = {}) {
 		refs.bar = fill;
 	}
 
+	if (subtext) {
+		const hr = make("hr", "metric-hr");
+		const subBox = make("div", "metric-subtext");
+		const subLabelEl = make("span", "metric-sub-label");
+		const subValEl = make("span", "metric-sub-value");
+		subBox.append(subLabelEl, subValEl);
+		node.append(hr, subBox);
+		refs.subLabel = subLabelEl;
+		refs.subVal = subValEl;
+	}
+
 	let currentAccent = accent;
 	let currentStatus = status;
 	applyAccent(valueBox, accent, status);
@@ -110,6 +122,12 @@ export function createMetric(opts = {}) {
 			if (next.indicator !== undefined && refs.indicator) {
 				text(refs.indicator, next.indicator || "");
 				refs.indicator.style.display = next.indicator ? "" : "none";
+			}
+			if (next.subLabel !== undefined && refs.subLabel) {
+				text(refs.subLabel, next.subLabel);
+			}
+			if (next.subValue !== undefined && refs.subVal) {
+				text(refs.subVal, next.subValue);
 			}
 			if (next.value !== undefined) text(refs.num, next.value);
 			if (next.unit !== undefined && refs.unit) {

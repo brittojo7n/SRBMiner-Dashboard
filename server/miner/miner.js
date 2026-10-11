@@ -19,11 +19,17 @@ const ACTIONS = Object.freeze({
 
 const CLEAN_STATS = Object.freeze({
 	hashrateKHs: null,
+	hashrateTotal: 0,
+	hashrateCpu: 0,
+	hashrateGpu: 0,
 	accepted: 0,
 	submitted: 0,
 	rejected: 0,
 	difficulty: null,
 	lastAcceptedAt: null,
+	poolLatency: null,
+	poolLatencies: [],
+	algorithms: [],
 });
 
 function resolveExe(exe, cwd) {
@@ -77,7 +83,7 @@ class MinerManager {
 		const uptime = now - (this.state.miner.startedAt || now);
 		if (m.status === STATUS.CRASHED || (uptime > 180000 && m.hashrateTotal === 0)) {
 			this.pushLog("Watchdog: Restarting miner due to error or 0 hashrate.", LOG.WARN);
-			this.requestAction("restart");
+			this.autoRestart();
 		}
 	}
 
@@ -98,6 +104,11 @@ class MinerManager {
 		this.state.mining.gpuAlgos = Object.create(null);
 		this.state.mining.gpuAlgoHashrates = Object.create(null);
 		this.state.mining.seenDevices = [];
+		this.state.mining.apiLatencies = Object.create(null);
+		this.state.mining.consoleLatencies = Object.create(null);
+		this.state.mining.poolStates = Object.create(null);
+		this.state.gpu = [];
+		this.state.cpu = [];
 	}
 
 	_markDown(status, error) {
@@ -223,7 +234,7 @@ class MinerManager {
 		const handleLine = (line) => {
 			try { 
 				parseMinerLine(line, this.state, this._pushLogBound); 
-				if (this.state.mining.status === STATUS.CRASHED && this.state.miner.running) this.requestAction("restart");
+				if (this.state.mining.status === STATUS.CRASHED && this.state.miner.running) this.autoRestart();
 			}
 			catch { this.state.dirty = true; }
 		};
@@ -296,7 +307,7 @@ class MinerManager {
 		const onLine = (line) => {
 			try { 
 				parseMinerLine(line, this.state, this._pushLogBound); 
-				if (this.state.mining.status === STATUS.CRASHED && this.state.miner.running) this.requestAction("restart");
+				if (this.state.mining.status === STATUS.CRASHED && this.state.miner.running) this.autoRestart();
 			}
 			catch { this.state.dirty = true; }
 		};
@@ -360,12 +371,21 @@ class MinerManager {
 		}
 		if (this._pendingAction === action) return;
 		const idle = !this.state.miner.running && !this.proc && this._pendingAction !== "start";
-		if (action === "start" && this._alive) return this._clearScheduledAction();
-		if (action === "stop" && idle) {
-			if (this.state.mining.status !== STATUS.STOPPED) this._markStopped();
-			return;
+		if (action === "start") {
+			this.state.mining.autoRestarts = 0;
+			if (this._alive) return this._clearScheduledAction();
 		}
-		if (action === "restart" && idle) return this.requestAction("start");
+		if (action === "stop") {
+			this.state.mining.autoRestarts = 0;
+			if (idle) {
+				if (this.state.mining.status !== STATUS.STOPPED) this._markStopped();
+				return;
+			}
+		}
+		if (action === "restart") {
+			this.state.mining.autoRestarts = 0;
+			if (idle) return this.requestAction("start");
+		}
 		this._clearScheduledAction();
 		this._pendingAction = action;
 		this._statusRollback = this.state.mining.status;
@@ -382,6 +402,25 @@ class MinerManager {
 					this._emit();
 				});
 			}
+		}, LIMITS.ACTION_DELAY_MS);
+	}
+
+	autoRestart() {
+		if (this._pendingAction === "restart") return;
+		this.state.mining.autoRestarts = (this.state.mining.autoRestarts || 0) + 1;
+		this._clearScheduledAction();
+		this._pendingAction = "restart";
+		this._statusRollback = this.state.mining.status;
+		this._setMining({ status: STATUS.RESTARTING });
+		this._emit();
+		this._actionTimer = timer(() => {
+			this._actionTimer = null;
+			this._pendingAction = null;
+			this._statusRollback = null;
+			Promise.resolve().then(() => this.restart()).catch((err) => {
+				this.pushLog(`Auto restart failed: ${err && err.message}`, LOG.ERROR);
+				this._emit();
+			});
 		}, LIMITS.ACTION_DELAY_MS);
 	}
 

@@ -46,10 +46,10 @@ function buildConfirmContent() {
 
 function buildSummary(host) {
 	const cards = {
+		uptime: createMetric({ label: "Uptime", value: DASH, surface: 1, subtext: true }),
 		hashrate: createHashrateMetric({ label: "Total Hashrate", surface: 1 }),
 		accepted: createMetric({ label: "Shares", value: DASH, accent: "green", surface: 1 }),
 		ratio: createMetric({ label: "Acceptance Ratio", value: DASH, surface: 1 }),
-		uptime: createMetric({ label: "Uptime", value: DASH, surface: 1 }),
 	};
 	for (const k in cards) host.appendChild(cards[k].node);
 	return cards;
@@ -123,10 +123,10 @@ class Dashboard {
 		text(this.els.localTime, timestamp(now, this.tz));
 		if (this.startedAt) {
 			const elapsed = Math.max(0, now - this.startedAt);
-			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)) });
+			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)), subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
 			this.mining.spm.set({ value: sharesPerMinute(this.accepted, elapsed) });
 		} else {
-			this.summary.uptime.set({ value: DASH });
+			this.summary.uptime.set({ value: DASH, subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
 			this.mining.spm.set({ value: DASH });
 		}
 	}
@@ -179,6 +179,7 @@ class Dashboard {
 		this.startedAt = snapshot.miner.running ? snapshot.startedAt : null;
 		this.tz = snapshot.host.tz;
 		this.accepted = snapshot.mining.accepted;
+		this.autoRestarts = snapshot.mining.autoRestarts || 0;
 		this.tick();
 		this.startClock();
 		const display = presentSnapshot(snapshot, { pendingStatus: this.pendingStatus });

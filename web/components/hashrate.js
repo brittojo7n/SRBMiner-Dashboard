@@ -89,7 +89,6 @@ export function createHashrateMetric(opts = {}) {
 					contentBox.append(row);
 				});
 			} else {
-				// Fallback
 				let row;
 				if (hasCpuMining && hasGpuMining) {
 					row = createRow("", "GPU", parseHr(hashrateGpu), "CPU", parseHr(hashrateCpu));
