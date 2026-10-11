@@ -137,7 +137,7 @@ export function presentGpu(gpu, opts = {}) {
 		hasPstate: gpu.pstate != null && gpu.pstate !== "",
 		temp: gpu.temperatureC != null ? `${num(gpu.temperatureC, 0)}\u00b0C` : DASH,
 		tempStatus: tempStatus(gpu.temperatureC, levels),
-		power: num(gpu.powerW, 1),
+		power: num(gpu.powerW, 0),
 		core: num(gpu.coreMHz, 0),
 		mem: num(gpu.memoryMHz, 0),
 		hasVram: gpu.memoryTotalMB != null && gpu.memoryTotalMB > 0,

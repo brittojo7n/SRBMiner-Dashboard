@@ -1,7 +1,6 @@
 const os = require("node:os");
 const config = require("./utils/config");
 const { createState } = require("./utils/state");
-const { GpuManager } = require("./miner/gpu");
 const { SseHub } = require("./http/sse");
 const { MinerManager } = require("./miner/miner");
 const { ApiManager } = require("./miner/api");
@@ -40,11 +39,9 @@ class Server {
 						clearTimeout(idleTimeout);
 						idleTimeout = null;
 					}
-					this.gpuManager.start();
 					this.apiManager.start();
 				} else if (!idleTimeout) {
 					idleTimeout = unrefTimer(() => {
-						this.gpuManager.stop();
 						this.apiManager.stop();
 						idleTimeout = null;
 					}, 20000);
@@ -52,7 +49,6 @@ class Server {
 			},
 		});
 
-		this.gpuManager = new GpuManager({ state: this.state, pollMs: this.config.GPU_POLL_MS, onUpdate: () => this.sseHub.broadcast() });
 		this.apiManager = new ApiManager({ state: this.state, port: this.config.API_PORT, pollMs: this.config.API_POLL_MS, onUpdate: () => this.sseHub.broadcast() });
 		this.minerManager = new MinerManager({ config: this.config, state: this.state, onUpdate: () => this.sseHub.broadcast() });
 		this.httpServer = createHttpServer({
@@ -60,7 +56,6 @@ class Server {
 			state: this.state,
 			sseHub: this.sseHub,
 			minerManager: this.minerManager,
-			gpuManager: this.gpuManager,
 			apiManager: this.apiManager,
 			webDir: options.webDir,
 		});
@@ -104,7 +99,6 @@ class Server {
 	stop(exitCode = 0, fromSigint = false) {
 		if (this._exiting) return this._stopPromise || Promise.resolve();
 		this._exiting = true;
-		this.gpuManager.stop();
 		this.apiManager.stop();
 		this.state.mining.consoleLatencies = Object.create(null);
 		this.state.mining.apiLatencies = Object.create(null);

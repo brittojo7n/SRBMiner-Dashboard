@@ -102,7 +102,7 @@ function highlight(raw) {
 	return painted;
 }
 
-const EMPTY_HTML = '<div class="log-empty"><span class="log-prompt">&gt;</span><span class="log-text">SRBMiner console initialized. Waiting for miner output...</span><span class="term-cursor">_</span></div>';
+const EMPTY_HTML = '<div class="log-empty"><span class="log-text">SRBMiner console initialized. Waiting for miner output...</span><span class="term-cursor">_</span></div>';
 
 export function createConsole({ terminal, lines, counter, onAutoScrollChange }) {
 	let autoScroll = true;
@@ -146,7 +146,7 @@ export function createConsole({ terminal, lines, counter, onAutoScrollChange }) 
 	const buildRow = (entry) => {
 		const row = make("div", `log-entry log-type-${entry.type || "info"}`);
 		row.dataset.id = entry.id;
-		row.innerHTML = `<span class="log-prompt">&gt;</span><span class="log-msg">${highlight(entry.text)}</span>`;
+		row.innerHTML = `<span class="log-msg">${highlight(entry.text)}</span>`;
 		return row;
 	};
 

@@ -218,6 +218,14 @@ class MinerManager {
 
 		const isWin = process.platform === "win32";
 
+		const handleLine = (line) => {
+			try { 
+				parseMinerLine(line, this.state, this._pushLogBound); 
+				if (this.state.mining.status === STATUS.CRASHED && this.state.miner.running) this.requestAction("restart");
+			}
+			catch { this.state.dirty = true; }
+		};
+
 		const doSpawn = () => {
 			if (!this._spawning) return;
 			try {
@@ -264,10 +272,7 @@ class MinerManager {
 				c.setEncoding("utf8");
 				c.on("error", () => {});
 				c.on("data", createStreamReader(
-					(line) => {
-						try { parseMinerLine(line, this.state, this._pushLogBound); }
-						catch { this.state.dirty = true; }
-					},
+					handleLine,
 					() => this._emit(),
 					() => true,
 					null
@@ -287,7 +292,10 @@ class MinerManager {
 	_bindStreams(child, forwardConsole) {
 		if (!child.stdout || !child.stderr) return;
 		const onLine = (line) => {
-			try { parseMinerLine(line, this.state, this._pushLogBound); }
+			try { 
+				parseMinerLine(line, this.state, this._pushLogBound); 
+				if (this.state.mining.status === STATUS.CRASHED && this.state.miner.running) this.requestAction("restart");
+			}
 			catch { this.state.dirty = true; }
 		};
 		const onFlush = () => this._emit();

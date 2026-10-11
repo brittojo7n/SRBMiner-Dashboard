@@ -29,10 +29,13 @@ class ApiManager extends Poller {
 			let data = "";
 			res.setEncoding("utf8");
 			res.on("data", (c) => { data += c; });
-			res.on("end", () => {
+			res.on("end", async () => {
+				if (!this.running) {
+					this.busy = false;
+					return;
+				}
+				try { await this._updateState(JSON.parse(data)); } catch {}
 				this.busy = false;
-				if (!this.running) return;
-				try { this._updateState(JSON.parse(data)); } catch {}
 				this._schedule();
 			});
 		});
@@ -44,7 +47,7 @@ class ApiManager extends Poller {
 		req.end();
 	}
 
-	_updateState(json) {
+	async _updateState(json) {
 		let changed = false;
 		const mining = this.state.mining;
 
@@ -195,40 +198,50 @@ class ApiManager extends Poller {
 		}
 
 		if (Array.isArray(json.gpu_devices)) {
+			const hasNvidia = json.gpu_devices.some((d) => String(d.vendor).toLowerCase() === "nvidia");
+			let smiData = null;
+			if (hasNvidia) {
+				const { fetchSmiData } = require("./nvidia_smi");
+				smiData = await fetchSmiData();
+			}
+
 			this.state.apiGpuDevices = json.gpu_devices;
+			const gpus = [];
 			for (let i = 0; i < json.gpu_devices.length; i++) {
 				const dev = json.gpu_devices[i];
 				if (dev.topology_id) {
 					this.state.mining.pciMap[normalizePci(dev.topology_id)] = dev.id;
 				}
-			}
-			if (!this.state.gpu || this.state.gpu.length === 0 || this.state.gpu.every((g) => g.fromApiOnly)) {
-				const fallbackGpus = [];
-				for (let i = 0; i < json.gpu_devices.length; i++) {
-					const apiGpu = json.gpu_devices[i];
-					const minerGpuId = apiGpu.id != null ? apiGpu.id : i;
-					const name = apiGpu.model || `GPU ${minerGpuId}`;
-					const temperatureC = apiGpu.temperature || null;
-					const powerW = apiGpu.asic_power ?? apiGpu.power_usage ?? null;
-					const coreMHz = apiGpu.core_clock || null;
-					const memoryMHz = apiGpu.memory_clock || null;
-					const pciBusId = apiGpu.topology_id ? normalizePci(apiGpu.topology_id) : "";
-					fallbackGpus.push({
-						index: minerGpuId,
-						minerId: minerGpuId,
-						name,
-						temperatureC,
-						powerW,
-						coreMHz,
-						memoryMHz,
-						pciBusId,
-						fromApiOnly: true,
-					});
+				const minerGpuId = dev.id != null ? dev.id : i;
+				const pciBusId = dev.topology_id ? normalizePci(dev.topology_id) : "";
+				
+				let smi = null;
+				if (smiData && String(dev.vendor).toLowerCase() === "nvidia") {
+					smi = smiData[pciBusId];
+					if (!smi && dev.bus_id != null) {
+						let b = dev.bus_id.toString(16).padStart(2, '0');
+						smi = smiData[b];
+					}
 				}
-				fallbackGpus.sort((a, b) => a.index - b.index);
-				this.state.gpu = fallbackGpus;
-				if (this.state.gpuError) this.state.gpuError = "";
+
+				gpus.push({
+					index: minerGpuId,
+					minerId: minerGpuId,
+					name: dev.model || `GPU ${minerGpuId}`,
+					temperatureC: dev.temperature || null,
+					powerW: dev.asic_power ?? dev.power_usage ?? null,
+					coreMHz: dev.core_clock || null,
+					memoryMHz: dev.memory_clock || null,
+					pciBusId,
+					memoryUsedMB: smi ? smi.memoryUsedMB : null,
+					memoryTotalMB: smi ? smi.memoryTotalMB : null,
+					utilizationPct: smi ? smi.utilizationPct : null,
+					pstate: smi ? smi.pstate : null,
+					fromApiOnly: !smi,
+				});
 			}
+			gpus.sort((a, b) => a.index - b.index);
+			this.state.gpu = gpus;
 			changed = true;
 		}
 

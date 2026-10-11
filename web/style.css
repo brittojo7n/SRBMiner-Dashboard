@@ -516,18 +516,13 @@ button, input, select, textarea { font-family: inherit; }
 .log-lines-wrapper { display: flex; flex-direction: column; gap: 2px; }
 .log-entry { display: flex; align-items: flex-start; gap: 8px; padding: 2px 4px; border-radius: 4px; word-break: break-all; white-space: pre-wrap; }
 .log-entry:hover { background: rgba(var(--white-rgb), 0.04); }
-.log-prompt { color: var(--cyan); font-weight: 700; user-select: none; flex-shrink: 0; }
-.log-msg { flex-grow: 1; color: var(--text-primary); }
+.log-msg { flex-grow: 1; color: var(--text-primary); font-family: var(--mono); }
+
 .log-type-error .log-msg { color: var(--red-bright); }
-.log-type-error .log-prompt { color: var(--red); }
 .log-type-warn .log-msg { color: var(--amber-bright); }
-.log-type-warn .log-prompt { color: var(--amber); }
 .log-type-success .log-msg { color: var(--green-bright); }
-.log-type-success .log-prompt { color: var(--green); }
 .log-type-accent .log-msg { color: var(--cyan-bright); }
-.log-type-accent .log-prompt { color: var(--cyan); }
 .log-type-system .log-msg { color: var(--violet-bright); font-weight: 600; font-style: italic; }
-.log-type-system .log-prompt { color: var(--violet); }
 .log-type-info .log-msg { color: var(--text-primary); }
 
 .hl-hash { color: var(--cyan-bright); font-weight: 700; }
@@ -538,6 +533,7 @@ button, input, select, textarea { font-family: inherit; }
 .hl-tag { color: var(--amber-bright); font-weight: 700; }
 .hl-info { color: var(--cyan-bright); font-weight: 600; }
 .hl-debug { color: var(--text-faint); font-weight: 600; }
+
 .log-empty { color: var(--text-faint); display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .term-cursor { display: inline-block; color: var(--cyan); font-weight: 700; }
 .fx .term-cursor { animation: blink 1s step-end infinite; }

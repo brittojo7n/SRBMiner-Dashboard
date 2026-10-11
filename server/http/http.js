@@ -111,7 +111,7 @@ function readJsonBody(req) {
 	});
 }
 
-function createHttpServer({ config, state, sseHub, minerManager, gpuManager, apiManager, webDir }) {
+function createHttpServer({ config, state, sseHub, minerManager, apiManager, webDir }) {
 	const staticFiles = buildAssets(webDir);
 	const requiresAuth = config.PASSPHRASE.length > 0;
 	const sessions = new SessionStore({ secret: config.SESSION_SECRET });

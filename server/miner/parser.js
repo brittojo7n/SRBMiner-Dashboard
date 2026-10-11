@@ -29,6 +29,17 @@ function canSetRunStatus(state) {
 	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED && s !== STATUS.CRASHED);
 }
 
+function setPoolState(mining, idx, status, state) {
+	if (!mining.poolStates) mining.poolStates = Object.create(null);
+	mining.poolStates[idx] = status;
+	if (status === "disconnected" || status === "reconnecting") {
+		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
+		if (mining.apiLatencies) delete mining.apiLatencies[idx];
+		if (idx === 0) mining.poolLatency = null;
+	}
+	if (state) state.dirty = true;
+}
+
 function findAlgoIndex(state, idxStr, poolOrAlgo) {
 	if (idxStr != null && idxStr !== "") {
 		const n = Number(idxStr);
@@ -63,8 +74,7 @@ function emitLog(state, pushLog, text, type) {
 
 function parseMinerLine(raw, state, pushLog) {
 	const source = typeof raw === "string" ? raw : String(raw);
-	const clean = source.indexOf("\u001b") === -1 ? source : stripAnsi(source);
-	const line = clean.trim();
+	const line = stripAnsi(source).trim();
 	if (!line) return;
 
 	const mining = state.mining;
@@ -101,7 +111,7 @@ function parseMinerLine(raw, state, pushLog) {
 		const lc = line.toLowerCase();
 		if (/(?:accepted:|share accepted|verified succes)/.test(lc) || lc.includes("connected to")) {
 			type = LOG.SUCCESS;
-		} else if (lc.includes("share rejected") || /(?:error|failed|rejected)/.test(lc)) {
+		} else if (lc.includes("share rejected") || (/(?:error|failed|rejected)/.test(lc) && !/["']?error["']?\s*:\s*null/.test(lc))) {
 			type = LOG.ERROR;
 		} else if (/(?:stratum|diff:|difficulty|latency:|average hashrate|total:|pool:)/.test(lc)) {
 			type = LOG.ACCENT;
@@ -116,7 +126,7 @@ function parseMinerLine(raw, state, pushLog) {
 		state.dirty = true;
 	}
 
-	emitLog(state, pushLog, line, type);
+	emitLog(state, pushLog, source.replace(/\r?\n$/, ""), type);
 
 	if (srbAccMatch) {
 		mining.accepted = (mining.accepted || 0) + 1;
@@ -131,13 +141,11 @@ function parseMinerLine(raw, state, pushLog) {
 				mining.poolLatency = lat;
 			}
 		}
-		if (!mining.poolStates) mining.poolStates = Object.create(null);
-		mining.poolStates[idx] = "connected";
+		setPoolState(mining, idx, "connected", state);
 		if (canSetRunStatus(state)) {
 			mining.status = STATUS.MINING;
 			state.miner.lastError = "";
 		}
-		state.dirty = true;
 	} else if (srbRejMatch) {
 		mining.rejected = (mining.rejected || 0) + 1;
 		mining.submitted = (mining.submitted || 0) + 1;
@@ -160,45 +168,28 @@ function parseMinerLine(raw, state, pushLog) {
 		state.dirty = true;
 	} else if (connMatch) {
 		const idx = findAlgoIndex(state, connMatch[2], connMatch[1]);
-		if (!mining.poolStates) mining.poolStates = Object.create(null);
-		mining.poolStates[idx] = "connected";
+		setPoolState(mining, idx, "connected", state);
 		if (canSetRunStatus(state) && mining.status !== STATUS.MINING) {
 			mining.status = STATUS.CONNECTED;
 		}
-		state.dirty = true;
 	}
 
 	if (reConnMatch) {
 		const idx = findAlgoIndex(state, reConnMatch[2], reConnMatch[1]);
-		if (!mining.poolStates) mining.poolStates = Object.create(null);
-		mining.poolStates[idx] = "reconnecting";
-		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
-		if (mining.apiLatencies) delete mining.apiLatencies[idx];
-		if (idx === 0) mining.poolLatency = null;
+		setPoolState(mining, idx, "reconnecting", state);
 		if (canSetRunStatus(state) && mining.status !== STATUS.MINING) {
 			mining.status = STATUS.WAITING;
 		}
-		state.dirty = true;
 	}
 
 	if (notConnMatch) {
 		const idx = findAlgoIndex(state, notConnMatch[1], null);
-		if (!mining.poolStates) mining.poolStates = Object.create(null);
-		mining.poolStates[idx] = "disconnected";
-		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
-		if (mining.apiLatencies) delete mining.apiLatencies[idx];
-		if (idx === 0) mining.poolLatency = null;
-		state.dirty = true;
+		setPoolState(mining, idx, "disconnected", state);
 	}
 
 	if (couldntMatch) {
 		const idx = findAlgoIndex(state, null, couldntMatch[1]);
-		if (!mining.poolStates) mining.poolStates = Object.create(null);
-		mining.poolStates[idx] = "disconnected";
-		if (mining.consoleLatencies) delete mining.consoleLatencies[idx];
-		if (mining.apiLatencies) delete mining.apiLatencies[idx];
-		if (idx === 0) mining.poolLatency = null;
-		state.dirty = true;
+		setPoolState(mining, idx, "disconnected", state);
 	}
 
 	const diffMatch = RX_SRB_DIFF.exec(line) || RX_DIFF.exec(line);

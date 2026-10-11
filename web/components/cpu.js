@@ -73,7 +73,7 @@ export function render(container, cpus, spec = DEFAULT_SPEC) {
 		if (v.l1) cacheInfo.push(`L1: ${Math.round(v.l1 / 1024)} KB`);
 		text(r.subtitle, cacheInfo.length ? cacheInfo.join(" • ") : "Live Telemetry");
 
-		r.power.set({ value: v.packagePowerW != null ? String(v.packagePowerW) : "0" });
+		r.power.set({ value: v.packagePowerW != null ? String(Math.round(v.packagePowerW)) : "0" });
 		r.hashrate.set({ value: formatHashrate(v.hashrate) });
 
 		const threadEntries = v.threads ? Object.entries(v.threads) : [];
