@@ -12,7 +12,7 @@ function parseEnvFile(text) {
 	const lines = String(text).split(/\r?\n/);
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i].trim();
-		if (!line || line.charCodeAt(0) === 35) continue;
+		if (!line || line.charCodeAt(0) === 35 || line.startsWith("//")) continue;
 		const eq = line.indexOf("=");
 		if (eq <= 0) continue;
 		const key = line.slice(0, eq).trim();

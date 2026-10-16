@@ -79,7 +79,7 @@ export function presentSnapshot(snapshot, options = {}) {
 		.map((a) => cleanPoolAddress(a.pool && a.pool.address))
 		.filter(Boolean);
 	const poolsFromMiner = parsePoolList(snapshot.miner.pool || "");
-	const allPools = poolsFromAlgos.length > 0 ? poolsFromAlgos : poolsFromMiner;
+	const allPools = poolsFromMiner.length > poolsFromAlgos.length ? poolsFromMiner : (poolsFromAlgos.length > 0 ? poolsFromAlgos : poolsFromMiner);
 
 	const poolLatencies = Array.isArray(m.poolLatencies) && m.poolLatencies.length > 0
 		? m.poolLatencies.map((entry, idx) => {

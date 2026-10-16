@@ -8,7 +8,7 @@ const { STATUS, LOG, LIMITS } = require("../utils/constants");
 const { parseCudaDeviceList, createStreamReader } = require("./devices");
 const { unrefTimer: timer } = require("../utils/timers");
 
-const SHELL_METACHAR_RE = /[;&|`$()\n\r<>]/;
+const SHELL_METACHAR_RE = /[&|`$()\n\r<>]/;
 const containsShellMetachars = (str) => SHELL_METACHAR_RE.test(str);
 
 const ACTIONS = Object.freeze({
