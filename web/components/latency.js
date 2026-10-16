@@ -1,21 +1,6 @@
 import { make, text } from "../lib/dom.js";
 import { DASH } from "../lib/present.js";
-
-const ACCENT_CLASS = {
-	cyan: "accent-cyan",
-	green: "accent-green",
-	red: "accent-red",
-	amber: "accent-amber",
-	violet: "accent-violet",
-};
-
-const STATUS_ACCENT = { ok: "green", warn: "amber", danger: "red" };
-
-function applyAccent(el, status, defaultAccent = "cyan") {
-	for (const k in ACCENT_CLASS) el.classList.remove(ACCENT_CLASS[k]);
-	const key = (status && STATUS_ACCENT[status]) || defaultAccent;
-	if (key && ACCENT_CLASS[key]) el.classList.add(ACCENT_CLASS[key]);
-}
+import { applyAccent } from "./metric.js";
 
 export function createLatencyMetric(opts = {}) {
 	const { label = "Pool Latency", surface = 2 } = opts;
@@ -102,12 +87,12 @@ export function createLatencyMetric(opts = {}) {
 				const p0 = pools[0] || {};
 				text(num1, p0.num || DASH);
 				text(unit1, p0.unit ? " " + p0.unit : "");
-				applyAccent(val1, p0.status, "cyan");
+				applyAccent(val1, "cyan", p0.status);
 
 				const p1 = pools[1] || {};
 				text(num2, p1.num || DASH);
 				text(unit2, p1.unit ? " " + p1.unit : "");
-				applyAccent(val2, p1.status, "cyan");
+				applyAccent(val2, "cyan", p1.status);
 
 				if (pools.length >= 3) {
 					horizDivider.style.display = "block";
@@ -117,7 +102,7 @@ export function createLatencyMetric(opts = {}) {
 					const p2 = pools[2] || {};
 					text(num3, p2.num || DASH);
 					text(unit3, p2.unit ? " " + p2.unit : "");
-					applyAccent(val3, p2.status, "cyan");
+					applyAccent(val3, "cyan", p2.status);
 
 					if (pools.length >= 4) {
 						vertDivider2.style.display = "block";
@@ -125,7 +110,7 @@ export function createLatencyMetric(opts = {}) {
 						const p3 = pools[3] || {};
 						text(num4, p3.num || DASH);
 						text(unit4, p3.unit ? " " + p3.unit : "");
-						applyAccent(val4, p3.status, "cyan");
+						applyAccent(val4, "cyan", p3.status);
 					} else {
 						vertDivider2.style.display = "none";
 						slot4.style.display = "none";
@@ -149,7 +134,7 @@ export function createLatencyMetric(opts = {}) {
 					text(singleNum, valText);
 					text(singleUnit, "");
 				}
-				applyAccent(singleBox, status, "cyan");
+				applyAccent(singleBox, "cyan", status);
 			}
 			return this;
 		},

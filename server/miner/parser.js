@@ -12,8 +12,10 @@ const RX_SRB_RECONNECTING = /(?:^|\]\s*)Reconnecting to\s+([^\s]+)(?:.*?\[(\d+)\
 const RX_SRB_NOT_CONNECTED = /(?:^|\]\s*)A(\d+)\s+not connected to a pool/i;
 const RX_SRB_COULDNT_CONNECT = /(?:^|\]\s*)(?:couldn't|failed to|unable to)\s+connect to pool\s*([^\s]+)?/i;
 const RX_DIFF = /difficulty(?:\s*(?:set|is))?\s*(?:to|:)?\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)/i;
-const RX_FATAL = /\b(?:cuda\s+error|failed\s+to|fatal|exception|enoent|out\s+of\s+memory|thread\s+.*?stopped|gpu.*?stopped)\b/i;
+const RX_FATAL = /\b(?:(?:cuda|ocl|opencl|compute|internal)\s+error|failed\s+to\s+(?!connect\s+to\s+pool|get\s+fan|reset\s+power)|fatal|exception|enoent|out\s+of\s+memory|not\s+enough\s+free\s+memory|(?:worker\s+|cpu\s+|gpu\s+)?thread\s+.*?(?:stopped|not\s+responding|stuck)|gpu\d*\s+(?:stopped|dead|turned\s+off|paused|not\s+responding))\b/i;
 const RX_POOL_DOWN = /stratum[\s_](?:connection\s+(?:failed|timed\s+out|interrupted)|recv_line\s+(?:timed\s+out|failed)|subscribe\s+(?:send\s+)?(?:failed|timed\s+out)|send_line\s+failed|authentication\s+failed|thread\s+create\s+failed)|json_rpc_call\s+failed|pool\s+connection\s+lost/i;
+const RX_DAG_START = /\b(?:generating\s+(?:cache|dag|dataset|datatable)|creating\s+(?:dag|dataset|datatable|cache)|building\s+(?:dag|dataset|datatable)|epoch\s*:\s*\d+|rx\s+(?:cache|dataset)\s+init|hold\s+on,\s+doing\s+the\s+first\s+devfee)\b/i;
+const RX_DAG_DONE = /\b(?:(?:dag|dataset|datatable)\s+(?:created|built|initialized|generated)|rx\s+initialization\s+time)\b/i;
 
 function toHashrateHz(val, unit) {
 	const u = (unit || "").charCodeAt(0) | 32;
@@ -24,9 +26,14 @@ function toHashrateHz(val, unit) {
 	return val;
 }
 
+function isMinerActive(state) {
+	const s = state.mining.status;
+	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED);
+}
+
 function canSetRunStatus(state) {
 	const s = state.mining.status;
-	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED && s !== STATUS.CRASHED);
+	return isMinerActive(state) && s !== STATUS.CRASHED && s !== STATUS.IDLE;
 }
 
 function setPoolState(mining, idx, status, state) {
@@ -94,6 +101,8 @@ function parseMinerLine(raw, state, pushLog) {
 		isFatal = true;
 		isPoolDown = true;
 		type = LOG.ERROR;
+	} else if (couldntMatch) {
+		type = LOG.ERROR;
 	} else if (RX_FATAL.test(line)) {
 		isFatal = true;
 		type = LOG.ERROR;
@@ -105,8 +114,6 @@ function parseMinerLine(raw, state, pushLog) {
 		type = LOG.SUCCESS;
 	} else if (reConnMatch || notConnMatch) {
 		type = LOG.WARN;
-	} else if (couldntMatch) {
-		type = LOG.ERROR;
 	} else {
 		const lc = line.toLowerCase();
 		if (/(?:accepted:|share accepted|verified succes)/.test(lc) || lc.includes("connected to")) {
@@ -120,9 +127,23 @@ function parseMinerLine(raw, state, pushLog) {
 		}
 	}
 
-	if (isFatal && canSetRunStatus(state)) {
+	if (RX_DAG_DONE.test(line)) {
+		mining.dagBuilding = false;
+		mining.zeroPings = 0;
+	} else if (!isFatal && RX_DAG_START.test(line)) {
+		mining.dagBuilding = true;
+		mining.dagStartedAt = Date.now();
+		mining.zeroPings = 0;
+	}
+
+	if (isFatal && isMinerActive(state)) {
 		state.miner.lastError = line;
-		mining.status = isPoolDown ? STATUS.DISCONNECTED : STATUS.CRASHED;
+		if (isPoolDown) {
+			mining.status = STATUS.DISCONNECTED;
+		} else {
+			mining.dagBuilding = false;
+			mining.status = STATUS.IDLE;
+		}
 		state.dirty = true;
 	}
 
@@ -133,6 +154,7 @@ function parseMinerLine(raw, state, pushLog) {
 		setPoolState(mining, idx, "connected", state);
 		if (canSetRunStatus(state)) {
 			mining.status = STATUS.MINING;
+			mining.dagBuilding = false;
 			state.miner.lastError = "";
 		}
 	} else if (srbRejMatch) {
@@ -141,10 +163,11 @@ function parseMinerLine(raw, state, pushLog) {
 		const hz = toHashrateHz(Number(totalMatch[1]), totalMatch[2]);
 		if (Number.isFinite(hz)) {
 			mining.hashrateTotal = hz;
-			mining.hashrateKHs = hz / 1000;
+			mining.hashrateKHs = hz > 0 ? hz / 1000 : null;
 		}
-		if (canSetRunStatus(state)) {
+		if (canSetRunStatus(state) && hz > 0) {
 			mining.status = STATUS.MINING;
+			mining.dagBuilding = false;
 			state.miner.lastError = "";
 		}
 		state.dirty = true;

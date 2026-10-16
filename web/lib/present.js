@@ -1,4 +1,4 @@
-import { cleanPoolAddress, parsePoolList, parseMinerWallet } from "./user.js";
+import { cleanPoolAddress, parsePoolList } from "./user.js";
 
 export const DASH = "\u2014";
 const pad = (n) => String(n).padStart(2, "0");
@@ -18,7 +18,7 @@ export function timestamp(ms, tz) {
 export const stripLogPrefix = (text) => String(text).replace(/^\[[^\]]+\]\s*\w+\s*/, "");
 const tempStatus = (t, levels) => t == null ? null : t >= levels.hot ? "danger" : t >= levels.warn ? "warn" : "ok";
 export const IDLE_STATUS = new Set(["STOPPED", "CRASHED", "ERROR"]);
-export const LIVE_STATUS = new Set(["MINING", "CONNECTED", "WAITING", "DISCONNECTED"]);
+export const LIVE_STATUS = new Set(["MINING", "CONNECTED", "WAITING", "DISCONNECTED", "MINER IDLE"]);
 function effectiveStatus(snapshot, pending) {
 	if (pending) return pending;
 	const s = snapshot.mining.status;
@@ -61,7 +61,7 @@ export function formatLatencyItem(entry, globalStatus) {
 	if (status === "connected") {
 		return { text: "Connected", status: null, num: "Connected", unit: "" };
 	}
-	if (status === "connecting" || globalStatus === "STARTING" || globalStatus === "WAITING" || globalStatus === "CONNECTED" || globalStatus === "MINING") {
+	if (status === "connecting" || globalStatus === "STARTING" || globalStatus === "WAITING" || globalStatus === "CONNECTED" || globalStatus === "MINING" || globalStatus === "MINER IDLE") {
 		return { text: "Connecting...", status: "warn", num: "Connecting...", unit: "" };
 	}
 	return { text: DASH, status: null, num: DASH, unit: "" };
@@ -94,7 +94,7 @@ export function presentSnapshot(snapshot, options = {}) {
 			};
 		})
 		: [(() => {
-			const f = formatLatencyItem({ latency: m.poolLatency, status: currentStatus === "MINING" ? "connected" : currentStatus }, currentStatus);
+			const f = formatLatencyItem({ latency: m.poolLatency, status: currentStatus === "MINING" || currentStatus === "MINER IDLE" ? "connected" : currentStatus }, currentStatus);
 			return { id: 0, tag: "POOL 1", text: f.text, num: f.num, unit: f.unit, status: f.status };
 		})()];
 
@@ -123,8 +123,6 @@ export function presentSnapshot(snapshot, options = {}) {
 		poolLatency: primaryLatency.text,
 		poolLatencyStatus: primaryLatency.status,
 		poolLatencies,
-		lastAccepted: m.lastAcceptedAt ? timestamp(m.lastAcceptedAt) : DASH,
-		wallet: parseMinerWallet(snapshot.miner.wallet || ""),
 		algo: (m.algorithms && m.algorithms.length > 0)
 			? m.algorithms.map((a) => a.name).join(", ")
 			: (snapshot.miner.algo || ""),

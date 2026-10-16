@@ -16,7 +16,7 @@ function accentKey(accent, status) {
 	return accent && ACCENT_CLASS[accent] ? accent : null;
 }
 
-function applyAccent(el, accent, status) {
+export function applyAccent(el, accent, status) {
 	for (const k in ACCENT_CLASS) el.classList.remove(ACCENT_CLASS[k]);
 	const key = accentKey(accent, status);
 	if (key) el.classList.add(ACCENT_CLASS[key]);
@@ -47,12 +47,6 @@ export function createMetric(opts = {}) {
 	node.append(labelEl, valueBox);
 
 	const refs = { node, label: labelEl, value: valueBox };
-
-	if (opts.indicator) {
-		const indEl = make("div", "metric-indicator");
-		labelEl.after(indEl);
-		refs.indicator = indEl;
-	}
 
 	if (parts) {
 		const isArr = Array.isArray(parts);
@@ -119,10 +113,6 @@ export function createMetric(opts = {}) {
 		node,
 		refs,
 		set(next = {}) {
-			if (next.indicator !== undefined && refs.indicator) {
-				text(refs.indicator, next.indicator || "");
-				refs.indicator.style.display = next.indicator ? "" : "none";
-			}
 			if (next.subLabel !== undefined && refs.subLabel) {
 				text(refs.subLabel, next.subLabel);
 			}

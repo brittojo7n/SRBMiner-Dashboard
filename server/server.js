@@ -29,28 +29,23 @@ class Server {
 		);
 		this._exiting = false;
 		this._shutdownWatchdog = null;
-		let idleTimeout = null;
 
 		this.sseHub = new SseHub({
 			state: this.state,
 			onSubscriberChange: (count) => {
-				if (count > 0) {
-					if (idleTimeout) {
-						clearTimeout(idleTimeout);
-						idleTimeout = null;
-					}
-					this.apiManager.start();
-				} else if (!idleTimeout) {
-					idleTimeout = unrefTimer(() => {
-						this.apiManager.stop();
-						idleTimeout = null;
-					}, 20000);
-				}
+				if (count > 0) this.apiManager.start();
 			},
 		});
 
-		this.apiManager = new ApiManager({ state: this.state, port: this.config.API_PORT, pollMs: this.config.API_POLL_MS, onUpdate: () => this.sseHub.broadcast() });
 		this.minerManager = new MinerManager({ config: this.config, state: this.state, onUpdate: () => this.sseHub.broadcast() });
+		this.apiManager = new ApiManager({
+			state: this.state,
+			port: this.config.API_PORT,
+			pollMs: this.config.API_POLL_MS,
+			minerManager: this.minerManager,
+			hasViewers: () => this.sseHub.size > 0,
+			onUpdate: () => this.sseHub.broadcast(),
+		});
 		this.httpServer = createHttpServer({
 			config: this.config,
 			state: this.state,
@@ -93,6 +88,7 @@ class Server {
 			console.log(`http://${this.config.HOST}:${port}\nLAN: http://${getLanIp()}:${port}`);
 		});
 		this.minerManager.start();
+		this.apiManager.start();
 		return this;
 	}
 

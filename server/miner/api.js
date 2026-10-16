@@ -1,20 +1,48 @@
 const http = require("node:http");
 const { Poller } = require("../utils/timers");
-const { STATUS } = require("../utils/constants");
+const { STATUS, LOG, LIMITS } = require("../utils/constants");
 const { normalizePci } = require("./devices");
+const { fetchSmiData } = require("./nvidia_smi");
 const { parseMinerWallet, cleanPoolAddress } = require("../../web/lib/user");
 
 const NUM_RE = /\d+/;
 
 class ApiManager extends Poller {
-	constructor({ state, port, pollMs = 2000, onUpdate } = {}) {
+	constructor({ state, port, pollMs = 2000, minerManager, hasViewers, onUpdate } = {}) {
 		super({ state, pollMs, onUpdate });
 		this.port = port;
+		this.minerManager = minerManager || null;
+		this.hasViewers = hasViewers || null;
+		this.apiOnline = false;
+		this.failCount = 0;
+	}
+
+	_onApiCrash(msg) {
+		if (!this.minerManager || this.minerManager.isBusy) return;
+		this.state.miner.lastError = msg;
+		this.minerManager.pushLog(`${msg}; restarting miner immediately.`, LOG.ERROR);
+		this.minerManager.autoRestart();
+	}
+
+	_onApiError() {
+		if (!this.minerManager || this.minerManager.isBusy) return;
+		if (this.apiOnline) {
+			this.failCount++;
+			if (this.failCount >= 2 || this.state.mining.status === STATUS.IDLE) {
+				this.apiOnline = false;
+				this.failCount = 0;
+				this._onApiCrash("Miner API became inaccessible");
+			}
+		}
 	}
 
 	_poll() {
 		if (!this.running) return;
 		if (this.busy || !this.state.miner.running) {
+			if (!this.state.miner.running) {
+				this.apiOnline = false;
+				this.failCount = 0;
+			}
 			this._schedule();
 			return;
 		}
@@ -24,7 +52,7 @@ class ApiManager extends Poller {
 			port: this.port,
 			path: "/",
 			method: "GET",
-			timeout: 1500,
+			timeout: 2500,
 		}, (res) => {
 			let data = "";
 			res.setEncoding("utf8");
@@ -34,31 +62,130 @@ class ApiManager extends Poller {
 					this.busy = false;
 					return;
 				}
-				try { await this._updateState(JSON.parse(data)); } catch {}
+				if (res.statusCode === 404 || res.statusCode >= 400) {
+					this.busy = false;
+					this._onApiCrash(`Miner API returned HTTP ${res.statusCode}`);
+					this._schedule();
+					return;
+				}
+				this.apiOnline = true;
+				this.failCount = 0;
+				if (data) {
+					try { await this._updateState(JSON.parse(data)); } catch {}
+				} else if (
+					this.state.mining.status === STATUS.IDLE ||
+					Date.now() - (this.state.miner.startedAt || Date.now()) > LIMITS.IDLE_SETTLE_MS
+				) {
+					this._syncHealth({}, 0, 0);
+					this._notify();
+				}
 				this.busy = false;
 				this._schedule();
 			});
 		});
 		req.on("error", () => {
 			this.busy = false;
-			if (this.running) this._schedule();
+			if (this.running) {
+				this._onApiError();
+				this._schedule();
+			}
 		});
 		req.on("timeout", () => req.destroy());
 		req.end();
 	}
 
+	_syncHealth(json, totalCpuHr, totalGpuHr) {
+		if (this.minerManager && this.minerManager.isBusy) return;
+		const mining = this.state.mining;
+		const s = mining.status;
+		if (s === STATUS.STOPPED || s === STATUS.STOPPING || s === STATUS.RESTARTING) return;
+
+		const now = Date.now();
+		if (mining.dagBuilding && now - (mining.dagStartedAt || 0) > LIMITS.DAG_TIMEOUT_MS) {
+			mining.dagBuilding = false;
+		}
+
+		const gpuExpected = (json.total_gpu_workers || 0) > 0;
+		const cpuExpected = (json.total_cpu_workers || 0) > 0;
+		const isZero =
+			mining.hashrateTotal <= 0 ||
+			(gpuExpected && totalGpuHr <= 0) ||
+			(cpuExpected && totalCpuHr <= 0);
+
+		if (!isZero) {
+			mining.dagBuilding = false;
+			mining.zeroPings = 0;
+		}
+
+		if (s === STATUS.IDLE) {
+			const settleMs = (this.minerManager && this.minerManager.timeouts.settle) ?? LIMITS.IDLE_SETTLE_MS;
+			const elapsed = now - (mining.idleSince || now);
+			if (isZero) {
+				mining.idleZeroSeen = true;
+				mining.positivePings = 0;
+				mining.hashrateTotal = 0;
+				mining.hashrateKHs = null;
+				if (gpuExpected && totalGpuHr <= 0) mining.hashrateGpu = 0;
+				if (cpuExpected && totalCpuHr <= 0) mining.hashrateCpu = 0;
+				if (mining.restartAt && now >= mining.restartAt && this.minerManager) {
+					this.minerManager.pushLog("Watchdog: Miner did not recover within grace period; restarting.", LOG.WARN);
+					this.minerManager.autoRestart();
+				}
+				return;
+			}
+			mining.positivePings = (mining.positivePings || 0) + 1;
+			if (elapsed < settleMs) {
+				return;
+			}
+			if (mining.idleZeroSeen || mining.positivePings >= LIMITS.IDLE_ZERO_PINGS) {
+				if (this.minerManager) this.minerManager.clearIdle(true);
+				else {
+					mining.status = STATUS.MINING;
+					mining.idleSince = null;
+					mining.restartAt = null;
+					this.state.miner.lastError = "";
+				}
+				return;
+			}
+			if (mining.restartAt && now >= mining.restartAt && this.minerManager) {
+				this.minerManager.pushLog("Watchdog: Miner did not recover within grace period; restarting.", LOG.WARN);
+				this.minerManager.autoRestart();
+			}
+			return;
+		}
+
+		if (isZero) {
+			if (mining.dagBuilding || s === STATUS.DISCONNECTED || s === STATUS.WAITING) return;
+			mining.zeroPings = (mining.zeroPings || 0) + 1;
+			if (mining.zeroPings >= LIMITS.IDLE_ZERO_PINGS) {
+				if (this.minerManager) {
+					this.minerManager.enterIdle(this.state.miner.lastError || "Miner hashrate dropped to 0");
+				} else {
+					mining.status = STATUS.IDLE;
+					mining.idleSince = now;
+					mining.restartAt = now + LIMITS.IDLE_TIMEOUT_MS;
+					mining.idleZeroSeen = true;
+				}
+			}
+			return;
+		}
+
+		mining.status = STATUS.MINING;
+	}
+
 	async _updateState(json) {
 		let changed = false;
 		const mining = this.state.mining;
+		let totalCpuHr = 0, totalGpuHr = 0;
 
 		if (json.rig_name && !mining.rigName) mining.rigName = json.rig_name;
 		if (json.miner_version) mining.minerVersion = json.miner_version;
 
 		if (Array.isArray(json.algorithms) && json.algorithms.length > 0) {
-			let totalAcc = 0, totalRej = 0, totalHr = 0, totalCpuHr = 0, totalGpuHr = 0;
-			
+			let totalAcc = 0, totalRej = 0, totalHr = 0, hasDeviceHr = false;
+
+			mining.gpuHashrates = Object.create(null);
 			mining.gpuAlgos = Object.create(null);
-			mining.gpuAlgoHashrates = Object.create(null);
 
 			mining.algorithms = json.algorithms.map((algo, idx) => {
 				const pool = algo.pool || {};
@@ -66,6 +193,7 @@ class ApiManager extends Poller {
 				const hr = algo.hashrate || {};
 				const cpuHr = hr.cpu || {};
 				const gpuHr = hr.gpu || {};
+				if (hr.cpu !== undefined || hr.gpu !== undefined) hasDeviceHr = true;
 				const oneMin = hr["1min"] || 0;
 				const accepted = shares.accepted || 0;
 				const rejected = shares.rejected || 0;
@@ -80,14 +208,14 @@ class ApiManager extends Poller {
 					for (const key in gpuHr) {
 						if (key !== "total") {
 							const val = gpuHr[key];
-							mining.gpuHashrates[key] = val;
+							mining.gpuHashrates[key] = (mining.gpuHashrates[key] || 0) + val;
 							const numMatch = NUM_RE.exec(key);
 							let id = null;
 							if (numMatch) {
 								id = numMatch[0];
-								mining.gpuHashrates[`cu_${id}`] = val;
-								mining.gpuHashrates[`cl_${id}`] = val;
-								mining.gpuHashrates[id] = val;
+								mining.gpuHashrates[`cu_${id}`] = mining.gpuHashrates[key];
+								mining.gpuHashrates[`cl_${id}`] = mining.gpuHashrates[key];
+								mining.gpuHashrates[id] = mining.gpuHashrates[key];
 							}
 							
 							const algoName = algo.name || `Algo ${idx}`;
@@ -96,9 +224,6 @@ class ApiManager extends Poller {
 							if (!mining.gpuAlgos[actualId].includes(algoName)) {
 								mining.gpuAlgos[actualId].push(algoName);
 							}
-
-							if (!mining.gpuAlgoHashrates[actualId]) mining.gpuAlgoHashrates[actualId] = [];
-							mining.gpuAlgoHashrates[actualId].push(val);
 						}
 					}
 				}
@@ -134,18 +259,13 @@ class ApiManager extends Poller {
 				};
 			});
 
-			if (totalAcc > (mining.accepted || 0)) {
-				mining.lastAcceptedAt = Date.now();
-			}
-
 			mining.accepted = totalAcc;
 			mining.rejected = totalRej;
 			mining.submitted = mining.accepted + mining.rejected;
 			mining.hashrateCpu = totalCpuHr;
 			mining.hashrateGpu = totalGpuHr;
-			mining.hashrateTotal = (totalCpuHr > 0 || totalGpuHr > 0)
-				? (totalCpuHr + totalGpuHr)
-				: totalHr;
+			mining.hashrateTotal = hasDeviceHr ? (totalCpuHr + totalGpuHr) : totalHr;
+			mining.hashrateKHs = mining.hashrateTotal > 0 ? mining.hashrateTotal / 1000 : null;
 
 			for (let idx = 0; idx < json.algorithms.length; idx++) {
 				const algo = json.algorithms[idx];
@@ -157,7 +277,7 @@ class ApiManager extends Poller {
 				}
 				if (!mining.poolStates) mining.poolStates = Object.create(null);
 				if (!mining.poolStates[idx] || mining.poolStates[idx] === "connecting") {
-					if (pool.latency != null || pool.time_connected) {
+					if (pool.latency != null || (pool.time_connected && pool.time_connected !== "0") || pool.uptime > 0) {
 						mining.poolStates[idx] = "connected";
 					}
 				}
@@ -176,13 +296,12 @@ class ApiManager extends Poller {
 					const w = parseMinerWallet(primary.pool.wallet);
 					if (w) this.state.miner.wallet = w;
 				}
-				if (mining.status !== STATUS.STOPPED && mining.status !== STATUS.STOPPING) {
-					mining.status = STATUS.MINING;
-				}
 			}
 
 			changed = true;
 		}
+
+		this._syncHealth(json, totalCpuHr, totalGpuHr);
 
 		if (json.total_cpu_workers > 0 && Array.isArray(json.cpu_devices) && json.cpu_devices.length > 0) {
 			let aggCpuHr = 0;
@@ -231,12 +350,10 @@ class ApiManager extends Poller {
 		if (Array.isArray(json.gpu_devices)) {
 			const hasNvidia = json.gpu_devices.some((d) => String(d.vendor).toLowerCase() === "nvidia");
 			let smiData = null;
-			if (hasNvidia) {
-				const { fetchSmiData } = require("./nvidia_smi");
+			if (hasNvidia && (!this.hasViewers || this.hasViewers())) {
 				smiData = await fetchSmiData();
 			}
 
-			this.state.apiGpuDevices = json.gpu_devices;
 			const gpus = [];
 			for (let i = 0; i < json.gpu_devices.length; i++) {
 				const dev = json.gpu_devices[i];
@@ -268,7 +385,6 @@ class ApiManager extends Poller {
 					memoryTotalMB: smi ? smi.memoryTotalMB : null,
 					utilizationPct: smi ? smi.utilizationPct : null,
 					pstate: smi ? smi.pstate : null,
-					fromApiOnly: !smi,
 				});
 			}
 			gpus.sort((a, b) => a.index - b.index);
@@ -281,13 +397,14 @@ class ApiManager extends Poller {
 
 	stop() {
 		super.stop();
+		this.apiOnline = false;
+		this.failCount = 0;
 		this.state.mining.apiLatencies = Object.create(null);
 		this.state.mining.consoleLatencies = Object.create(null);
 		this.state.mining.poolStates = Object.create(null);
 		this.state.mining.poolLatency = null;
-		if (this.state.cpu.length > 0 || (this.state.apiGpuDevices && this.state.apiGpuDevices.length > 0)) {
+		if (this.state.cpu.length > 0) {
 			this.state.cpu = [];
-			this.state.apiGpuDevices = [];
 		}
 		this._notify();
 	}

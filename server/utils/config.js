@@ -1,9 +1,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { resolveIdentity, cleanPoolAddress, parsePoolList } = require("../../web/lib/user");
+const { resolveIdentity, parsePoolList } = require("../../web/lib/user");
 const { parseMinerArgs } = require("./args");
 
-const GPU_POLL_MS = 5000;
 const API_POLL_MS = 10000;
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
@@ -91,7 +90,7 @@ function buildConfig(env = process.env, opts = {}) {
 	}
 
 	return Object.freeze({
-		PORT, HOST, GPU_POLL_MS, API_POLL_MS, API_PORT,
+		PORT, HOST, API_POLL_MS, API_PORT,
 		MINER_EXE, MINER_ARGS: Object.freeze(MINER_ARGS), MINER_CWD,
 		PASSPHRASE: env.PASSPHRASE || "", SESSION_SECRET: env.SESSION_SECRET || "",
 		WALLET: identity.wallet,
@@ -111,4 +110,4 @@ function validateConfig(config) {
 loadEnvFile();
 const config = buildConfig(process.env);
 
-module.exports = Object.assign({}, config, { validateConfig, buildConfig, loadEnvFile, parseEnvFile, GPU_POLL_MS, API_POLL_MS });
+module.exports = Object.assign({}, config, { validateConfig, buildConfig, loadEnvFile, parseEnvFile, API_POLL_MS });

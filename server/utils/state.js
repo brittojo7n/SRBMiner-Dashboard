@@ -83,19 +83,23 @@ function createState(wallet = "", maxLogs = 50, algo = "", pool = "") {
 			rejected: 0,
 			difficulty: null,
 			status: STATUS.STOPPED,
-			lastAcceptedAt: null,
 			gpuHashrates: Object.create(null),
 			gpuAlgos: Object.create(null),
-			gpuAlgoHashrates: Object.create(null),
 			pciMap: Object.create(null),
 			algorithms: [],
 			rigName: "",
 			minerVersion: "",
 			autoRestarts: 0,
+			idleSince: null,
+			restartAt: null,
+			positivePings: 0,
+			zeroPings: 0,
+			idleZeroSeen: false,
+			dagBuilding: false,
+			dagStartedAt: 0,
 		},
 		gpu: [],
 		cpu: [],
-		apiGpuDevices: [],
 		host: { hostname: HOSTNAME, tz: SERVER_TZ },
 	};
 }
@@ -105,7 +109,6 @@ function hashrateForGpu(state, gpu) {
 	const devIndex = gpu.minerId != null ? gpu.minerId : (mapped !== undefined ? mapped : gpu.index);
 	const rates = state.mining.gpuHashrates;
 	const algos = state.mining.gpuAlgos ? (state.mining.gpuAlgos[devIndex] ?? state.mining.gpuAlgos[`gpu${devIndex}`]) : null;
-	const algoHashrates = state.mining.gpuAlgoHashrates ? (state.mining.gpuAlgoHashrates[devIndex] ?? state.mining.gpuAlgoHashrates[`gpu${devIndex}`]) : null;
 	const direct = rates[`gpu${devIndex}`] ?? rates[`cu_${devIndex}`] ?? rates[`cl_${devIndex}`] ?? rates[devIndex];
 	
 	if (algos && algos.length > 0) {
@@ -114,9 +117,6 @@ function hashrateForGpu(state, gpu) {
 		gpu.algos = [state.mining.algorithms[0].name];
 	} else if (state.miner.algo) {
 		gpu.algos = [state.miner.algo];
-	}
-	if (algoHashrates) {
-		gpu.algoHashrates = algoHashrates;
 	}
 
 	if (direct !== undefined) return direct;
@@ -191,11 +191,11 @@ function formatStatsSnapshot(state, options) {
 			poolLatencies: getPoolLatencies(state),
 			accepted: mining.accepted, submitted: mining.submitted,
 			rejected: mining.rejected, difficulty: mining.difficulty, status: mining.status,
-			lastAcceptedAt: mining.lastAcceptedAt,
 			algorithms: mining.algorithms || [],
 			rigName: mining.rigName || "",
 			minerVersion: mining.minerVersion || "",
 			autoRestarts: mining.autoRestarts || 0,
+			restartAt: mining.restartAt || null,
 		},
 		gpuError: state.gpuError || "",
 		gpu: gpus,

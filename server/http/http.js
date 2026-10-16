@@ -190,14 +190,13 @@ function createHttpServer({ config, state, sseHub, minerManager, apiManager, web
 		const snapshot = formatStatsSnapshot(state);
 		const minerRunning = snapshot.miner.running;
 		const minerStatus = minerRunning ? "pass" : "warn";
-		const gpuPolling = gpuManager ? gpuManager.running : false;
+		const apiPolling = apiManager ? apiManager.running : false;
 		const gpuDevices = state.gpu.length;
 		const gpuError = state.gpuError || "";
 		const gpuStatus = gpuError ? "fail" : "pass";
-		const gpuCheck = { status: gpuStatus, polling: gpuPolling };
-		if (gpuPolling) gpuCheck.devices = gpuDevices;
+		const gpuCheck = { status: gpuStatus, polling: apiPolling };
+		if (apiPolling) gpuCheck.devices = gpuDevices;
 		if (gpuError) gpuCheck.error = gpuError;
-		const apiPolling = apiManager ? apiManager.running : false;
 		const sseStatus = "pass";
 		const checks = {
 			miner: { status: minerStatus, state: snapshot.mining.status, pid: snapshot.miner.pid },

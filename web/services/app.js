@@ -76,7 +76,7 @@ function buildMiningMetrics(host) {
 class Dashboard {
 	constructor() {
 		this.els = {
-			dot: el("dot"), status: el("status"), host: el("host"), btnAction: el("btnAction"),
+			dot: el("dot"), status: el("status"), host: el("host"), idleTimer: el("idleTimer"), btnAction: el("btnAction"),
 			btnRestart: el("btnRestart"), error: el("error"), gpus: el("gpus"), cpus: el("cpus"),
 			localTime: el("localTime"), btnAutoScroll: el("btnAutoScroll"), refresh: el("btnRefresh"),
 			gpuSection: el("gpuSection"),
@@ -97,6 +97,7 @@ class Dashboard {
 		this.startedAt = null;
 		this.tz = null;
 		this.accepted = 0;
+		this.restartAt = null;
 		this.ticker = null;
 		this.pendingStatus = null;
 		this.lastError = null;
@@ -108,7 +109,12 @@ class Dashboard {
 			onSnapshot: this.render.bind(this),
 			onUnauthorized: this.showAuth.bind(this),
 			onLive: () => this.modal.close(),
-			onCountdown: (message) => text(this.els.host, message),
+			onCountdown: (message) => {
+				this.restartAt = null;
+				text(this.els.idleTimer, "");
+				className(this.els.idleTimer, "idle-timer");
+				text(this.els.host, message);
+			},
 			onStatusText: this.onStatusText.bind(this),
 		});
 		this.bindEvents();
@@ -121,6 +127,14 @@ class Dashboard {
 		if (this.serverNow == null) return;
 		const now = this.serverNow + (Date.now() - this.capturedAt);
 		text(this.els.localTime, timestamp(now, this.tz));
+		if (this.restartAt) {
+			const rem = Math.max(0, Math.ceil((this.restartAt - now) / 1000));
+			text(this.els.idleTimer, `${rem}s`);
+			className(this.els.idleTimer, "idle-timer show");
+		} else {
+			text(this.els.idleTimer, "");
+			className(this.els.idleTimer, "idle-timer");
+		}
 		if (this.startedAt) {
 			const elapsed = Math.max(0, now - this.startedAt);
 			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)), subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
@@ -160,9 +174,11 @@ class Dashboard {
 			const wasLive = LIVE.has(this.lastStatus);
 			if (status === "CRASHED") {
 				toast.error("Miner Crashed", "The SRBMiner process exited unexpectedly.", "miner-state");
+			} else if (status === "MINER IDLE") {
+				toast.warn("Miner Idle", "Miner is idle. Waiting for recovery before auto-restart.", "miner-state");
 			} else if (status === "STOPPED" && !wasIdle) {
 				toast.neutral("Miner Stopped", "The SRBMiner process has stopped.", "miner-state");
-			} else if (status === "MINING" && this.lastStatus === "DISCONNECTED") {
+			} else if (status === "MINING" && (this.lastStatus === "DISCONNECTED" || this.lastStatus === "MINER IDLE")) {
 				toast.success("Mining Resumed", "The miner is hashing again.", "miner-state");
 			} else if (LIVE.has(status) && !wasLive) {
 				toast.success("Miner Started", "The SRBMiner process is running.", "miner-state");
@@ -178,9 +194,10 @@ class Dashboard {
 		this.tz = snapshot.host.tz;
 		this.accepted = snapshot.mining.accepted;
 		this.autoRestarts = snapshot.mining.autoRestarts || 0;
+		const display = presentSnapshot(snapshot, { pendingStatus: this.pendingStatus });
+		this.restartAt = display.status === "MINER IDLE" && snapshot.mining.restartAt ? snapshot.mining.restartAt : null;
 		this.tick();
 		this.startClock();
-		const display = presentSnapshot(snapshot, { pendingStatus: this.pendingStatus });
 		this.announce(display.status);
 		text(this.els.host, display.host);
 		this.applyChrome(display.status, !!this.pendingStatus);
@@ -225,6 +242,8 @@ class Dashboard {
 				const detail = stripLogPrefix(snapshot.miner.lastError);
 				if (snapshot.mining.status === "DISCONNECTED") {
 					toast.warn("Pool Disconnected", detail || "Lost connection to the mining pool.", "miner-error");
+				} else if (snapshot.mining.status === "MINER IDLE") {
+					toast.warn("Miner Idle", detail || "Miner entered idle state.", "miner-error");
 				} else {
 					toast.error("Miner Error", detail || snapshot.miner.lastError, "miner-error");
 				}
@@ -258,6 +277,9 @@ class Dashboard {
 	onStatusText(label, unreachable) {
 		this.stopClock();
 		this.pendingStatus = null;
+		this.restartAt = null;
+		text(this.els.idleTimer, "");
+		className(this.els.idleTimer, "idle-timer");
 		text(this.els.status, label);
 		className(this.els.dot, "dot err");
 		if (unreachable) text(this.els.host, "Host Unreachable");
