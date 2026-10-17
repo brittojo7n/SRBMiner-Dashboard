@@ -22,6 +22,7 @@ export const LIVE_STATUS = new Set(["MINING", "CONNECTED", "WAITING", "DISCONNEC
 function effectiveStatus(snapshot, pending) {
 	if (pending) return pending;
 	const s = snapshot.mining.status;
+	if (snapshot.mining && snapshot.mining.recovering) return "STARTING";
 	return !snapshot.miner.running && LIVE_STATUS.has(s) ? "STOPPED" : s;
 }
 export function dotClass(status) {

@@ -82,6 +82,17 @@ class Dashboard {
 			gpuSection: el("gpuSection"),
 		};
 		this.summary = buildSummary(el("summary"));
+		
+		this.rCountNode = make("span", "", "0");
+		this.hrCountNode = make("span", "", "0");
+		this.rValNode = make("span", "metric-part");
+		this.rValNode.style.gap = "6px";
+		this.rValNode.style.alignItems = "center";
+		const rBadge = make("span", "tooltip-badge badge-r", "R");
+		const hrBadge = make("span", "tooltip-badge badge-hr", "HR");
+		const sep = make("span", "metric-sub-divider");
+		this.rValNode.append(rBadge, this.rCountNode, sep, hrBadge, this.hrCountNode);
+
 		this.identity = createIdentity();
 		el("identity").appendChild(this.identity.node);
 		this.mining = buildMiningMetrics(el("miningMetrics"));
@@ -98,6 +109,9 @@ class Dashboard {
 		this.tz = null;
 		this.accepted = 0;
 		this.restartAt = null;
+		this.autoRestarts = 0;
+		this.normalRestarts = 0;
+		this.hardRestarts = 0;
 		this.ticker = null;
 		this.pendingStatus = null;
 		this.lastError = null;
@@ -124,8 +138,8 @@ class Dashboard {
 	}
 
 	tick() {
-		if (this.serverNow == null) return;
-		const now = this.serverNow + (Date.now() - this.capturedAt);
+		if (this.serverOffset == null) return;
+		const now = Date.now() + this.serverOffset;
 		text(this.els.localTime, timestamp(now, this.tz));
 		if (this.restartAt) {
 			const rem = Math.max(0, Math.ceil((this.restartAt - now) / 1000));
@@ -137,9 +151,9 @@ class Dashboard {
 		}
 		if (this.startedAt) {
 			const elapsed = Math.max(0, now - this.startedAt);
-			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)), subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
+			this.summary.uptime.set({ value: uptime(Math.floor(elapsed / 1000)), subLabel: "AUTO RESTART:", subValue: this.rValNode });
 		} else {
-			this.summary.uptime.set({ value: DASH, subLabel: "AUTO RESTART:", subValue: this.autoRestarts || 0 });
+			this.summary.uptime.set({ value: DASH, subLabel: "AUTO RESTART:", subValue: this.rValNode });
 		}
 	}
 
@@ -188,14 +202,22 @@ class Dashboard {
 	}
 
 	render(snapshot) {
-		this.serverNow = snapshot.now;
-		this.capturedAt = Date.now();
-		this.startedAt = snapshot.miner.running ? snapshot.startedAt : null;
+		const offset = snapshot.now - Date.now();
+		if (this.serverOffset == null || Math.abs(this.serverOffset - offset) > 2000) {
+			this.serverOffset = offset;
+		}
+		this.startedAt = snapshot.startedAt || (snapshot.miner.running ? snapshot.miner.startedAt : null);
 		this.tz = snapshot.host.tz;
 		this.accepted = snapshot.mining.accepted;
 		this.autoRestarts = snapshot.mining.autoRestarts || 0;
+		this.normalRestarts = snapshot.mining.normalRestarts || 0;
+		this.hardRestarts = snapshot.mining.hardRestarts || 0;
 		const display = presentSnapshot(snapshot, { pendingStatus: this.pendingStatus });
-		this.restartAt = display.status === "MINER IDLE" && snapshot.mining.restartAt ? snapshot.mining.restartAt : null;
+		this.restartAt = (display.status === "MINER IDLE" || snapshot.mining.recovering) && snapshot.mining.restartAt ? snapshot.mining.restartAt : null;
+		if (this.rCountNode && this.hrCountNode) {
+			text(this.rCountNode, this.normalRestarts);
+			text(this.hrCountNode, this.hardRestarts);
+		}
 		this.tick();
 		this.startClock();
 		this.announce(display.status);

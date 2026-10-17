@@ -68,6 +68,7 @@ class MinerManager {
 			restartGap: timeouts.restartGap ?? LIMITS.RESTART_GAP_MS,
 			idle: timeouts.idle ?? LIMITS.IDLE_TIMEOUT_MS,
 			settle: timeouts.settle ?? LIMITS.IDLE_SETTLE_MS,
+			grace: timeouts.grace ?? LIMITS.GRACE_PERIOD_MS,
 		};
 		this.proc = null;
 		this.isStoppingChild = false;
@@ -76,6 +77,8 @@ class MinerManager {
 		this._forceKillTimer = null;
 		this._actionTimer = null;
 		this._idleTimer = null;
+		this._graceTimer = null;
+		this._adoptedPid = null;
 		this._pendingAction = null;
 		this._statusRollback = null;
 		this._spawning = false;
@@ -98,7 +101,7 @@ class MinerManager {
 	get isBusy() {
 		const s = this.state.mining.status;
 		return Boolean(
-			!this.state.miner.running ||
+			(!this.state.miner.running && !this.state.mining.recovering) ||
 			this._spawning ||
 			this.isStoppingChild ||
 			this._stopPromise ||
@@ -109,6 +112,69 @@ class MinerManager {
 			s === STATUS.STOPPED ||
 			s === STATUS.RESTARTING
 		);
+	}
+
+	get isGraceActive() {
+		return Boolean(this._graceTimer || this.state.mining.recovering);
+	}
+
+	_findMinerPid() {
+		return new Promise((resolve) => {
+			if (process.platform !== "win32") return resolve(null);
+			const exeName = path.basename(this.config.MINER_EXE || "SRBMiner-MULTI.exe");
+			execFile("tasklist.exe", ["/FI", `IMAGENAME eq ${exeName}`, "/FO", "CSV", "/NH"], { shell: false, windowsHide: true }, (err, stdout) => {
+				if (err || !stdout) return resolve(null);
+				const lines = stdout.trim().split(/\r?\n/);
+				const pids = [];
+				for (const line of lines) {
+					const parts = line.split('","');
+					if (parts.length >= 2) {
+						const p = parseInt(parts[1].replace(/"/g, ""), 10);
+						if (Number.isFinite(p) && p > 0 && p !== process.pid) pids.push(p);
+					}
+				}
+				if (!pids.length) return resolve(null);
+				const currentPid = this.state.miner.pid;
+				const cand = pids.find(p => p !== currentPid) || pids[pids.length - 1];
+				resolve(cand);
+			});
+		});
+	}
+
+	_clearGraceTimer() {
+		clearTimeout(this._graceTimer);
+		this._graceTimer = null;
+		this.state.mining.recovering = false;
+		this.state.mining.restartAt = null;
+	}
+
+	onSelfRestartDetected() {
+		if (!this.state.mining.recovering && !this._graceTimer) return;
+		this._clearGraceTimer();
+		this.clearIdle(false);
+		this.state.mining.normalRestarts = (this.state.mining.normalRestarts || 0) + 1;
+		this.state.mining.autoRestarts = this.state.mining.normalRestarts + (this.state.mining.hardRestarts || 0);
+		this.state.miner.running = true;
+		this.state.miner.lastError = "";
+		this._setMining({ status: STATUS.STARTING });
+		this.pushLog("Miner self-restarted successfully (normal restart).", LOG.SUCCESS);
+		this._findMinerPid().then((newPid) => {
+			if (newPid) {
+				this.state.miner.pid = newPid;
+				this._adoptedPid = newPid;
+			}
+			this._emit();
+		});
+		this._emit();
+	}
+
+	_onGraceTimeout() {
+		this._clearGraceTimer();
+		if (this.isBusy) return;
+		this.state.mining.hardRestarts = (this.state.mining.hardRestarts || 0) + 1;
+		this.state.mining.autoRestarts = (this.state.mining.normalRestarts || 0) + this.state.mining.hardRestarts;
+		this.pushLog("Watchdog: Miner did not recover within 60s grace period; initiating hard restart.", LOG.WARN);
+		this.autoRestart();
 	}
 
 	enterIdle(reason) {
@@ -133,6 +199,8 @@ class MinerManager {
 		this._idleTimer = timer(() => {
 			this._idleTimer = null;
 			if (this.isBusy || this.state.mining.status !== STATUS.IDLE) return;
+			this.state.mining.hardRestarts = (this.state.mining.hardRestarts || 0) + 1;
+			this.state.mining.autoRestarts = (this.state.mining.normalRestarts || 0) + this.state.mining.hardRestarts;
 			this.pushLog("Watchdog: Miner did not recover within grace period; restarting.", LOG.WARN);
 			this.autoRestart();
 		}, this.timeouts.idle);
@@ -213,6 +281,9 @@ class MinerManager {
 		if (this._stopPromise) return this._stopPromise.then(() => this.start());
 		if (this._alive) return Promise.resolve();
 
+		if (!this.state.miner.sessionStartedAt) {
+			this.state.miner.sessionStartedAt = Date.now();
+		}
 		this._resetStats();
 		this.state.miner.lastError = "";
 		const { MINER_ARGS, MINER_CWD } = this.config;
@@ -330,6 +401,7 @@ class MinerManager {
 			this._spawning = false;
 			this.state.miner.running = true;
 			this.state.miner.pid = child.pid;
+			this._adoptedPid = null;
 			this.state.miner.startedAt = Date.now();
 			this.state.miner.exitCode = null;
 			this.state.miner.signal = null;
@@ -347,10 +419,18 @@ class MinerManager {
 			}
 			safeArgs.push("--log-file", pipeName);
 			this._logServer = net.createServer((c) => {
+				if (this.state.mining.recovering || this._graceTimer) {
+					this.onSelfRestartDetected();
+				}
 				c.setEncoding("utf8");
 				c.on("error", () => {});
 				c.on("data", createStreamReader(
-					this._onLine,
+					(line) => {
+						if (this.state.mining.recovering || this._graceTimer) {
+							this.onSelfRestartDetected();
+						}
+						this._onLine(line);
+					},
 					() => this._emit(),
 					() => true,
 					null
@@ -394,15 +474,31 @@ class MinerManager {
 			const s = this.state.mining.status;
 			const isRestart = this._restarting || this._pendingAction === "restart" || s === STATUS.RESTARTING;
 			const deliberate = isRestart || this.isStoppingChild || this._pendingAction === "stop" || s === STATUS.STOPPING || s === STATUS.STOPPED;
-			const next = isRestart ? STATUS.RESTARTING : deliberate ? STATUS.STOPPED : code === 0 && !signal ? STATUS.STOPPED : STATUS.CRASHED;
-			this._markDown(next);
 			this.state.miner.exitCode = code;
 			this.state.miner.signal = signal;
-			this.state.miner.pid = null;
 			this.pushLog(`Exited (code: ${code}${signal ? `, sig: ${signal}` : ""})`, LOG.SYSTEM);
 			if (this.proc === child) this.proc = null;
+
+			if (deliberate) {
+				const next = isRestart ? STATUS.RESTARTING : STATUS.STOPPED;
+				this._markDown(next);
+				this.state.miner.pid = null;
+				this._emit();
+				return;
+			}
+
+			this.state.miner.pid = null;
+			this.state.mining.recovering = true;
+			const now = Date.now();
+			this.state.mining.restartAt = now + this.timeouts.grace;
+			this._setMining({ status: STATUS.STARTING });
+			this.pushLog("Miner exited unexpectedly; waiting 60s for self-restart.", LOG.WARN);
 			this._emit();
-			if (next === STATUS.CRASHED) this.autoRestart();
+
+			clearTimeout(this._graceTimer);
+			this._graceTimer = timer(() => {
+				this._onGraceTimeout();
+			}, this.timeouts.grace);
 		};
 		child.on("exit", onGone);
 		child.on("close", onGone);
@@ -421,6 +517,7 @@ class MinerManager {
 
 	_markStopped() {
 		this.clearIdle(false);
+		this._clearGraceTimer();
 		this.state.miner.running = false;
 		this._setMining({ status: STATUS.STOPPED });
 		this._emit();
@@ -428,6 +525,7 @@ class MinerManager {
 
 	_scheduleAction(action) {
 		this.clearIdle(false);
+		this._clearGraceTimer();
 		this._clearScheduledAction();
 		this._pendingAction = action;
 		this._statusRollback = this.state.mining.status;
@@ -452,28 +550,41 @@ class MinerManager {
 			throw new Error(`Unsupported miner action "${action}". Valid actions are: ${Object.keys(ACTIONS).join(", ")}.`);
 		}
 		if (this._pendingAction === action) return;
+		this._clearGraceTimer();
 		const idle = !this.state.miner.running && !this.proc && this._pendingAction !== "start";
 		this.state.mining.autoRestarts = 0;
-		if (action === "start" && this._alive) return this._clearScheduledAction();
-		if (action === "stop" && idle) {
-			if (this.state.mining.status !== STATUS.STOPPED) this._markStopped();
-			return;
+		this.state.mining.normalRestarts = 0;
+		this.state.mining.hardRestarts = 0;
+		if (action === "start") {
+			this.state.miner.sessionStartedAt = Date.now();
+			if (this._alive) return this._clearScheduledAction();
 		}
-		if (action === "restart" && idle) return this.requestAction("start");
+		if (action === "restart") {
+			this.state.miner.sessionStartedAt = Date.now();
+			if (idle) return this.requestAction("start");
+		}
+		if (action === "stop") {
+			this.state.miner.sessionStartedAt = null;
+			if (idle) {
+				if (this.state.mining.status !== STATUS.STOPPED) this._markStopped();
+				return;
+			}
+		}
 		this._scheduleAction(action);
 	}
 
 	autoRestart() {
 		if (this._pendingAction === "restart" || this._restarting || this.isStoppingChild) return;
-		this.state.mining.autoRestarts = (this.state.mining.autoRestarts || 0) + 1;
 		this._scheduleAction("restart");
 	}
 
 	stop(options = {}) {
 		this.clearIdle(false);
+		this._clearGraceTimer();
 		this._clearScheduledAction();
 		this._spawning = false;
-		if (!this.proc || !this.state.miner.running) {
+		const targetPid = (this.proc && this.proc.pid) || this.state.miner.pid || this._adoptedPid;
+		if (!targetPid && !this.proc && !this.state.miner.running) {
 			if (!this._restarting && this.state.mining.status !== STATUS.STOPPED) this._markStopped();
 			return Promise.resolve();
 		}
@@ -481,7 +592,7 @@ class MinerManager {
 		this._setMining({ status: this._restarting ? STATUS.RESTARTING : STATUS.STOPPING });
 		this._emit();
 		const child = this.proc;
-		const pid = child.pid;
+		const pid = targetPid;
 		this.isStoppingChild = true;
 		this._stopPromise = new Promise((resolve) => {
 			let settled = false;
@@ -491,20 +602,24 @@ class MinerManager {
 				clearTimeout(watchdog);
 				this._forceKillTimer = null;
 				if (this.proc === child) this.proc = null;
+				this._adoptedPid = null;
+				this.state.miner.pid = null;
 				this._setMining({ status: this._restarting ? STATUS.RESTARTING : STATUS.STOPPED });
 				this.state.miner.running = false;
 				this._stopPromise = null;
 				this.isStoppingChild = false;
 				resolve();
 			};
-			child.once("close", finish);
-			child.once("exit", finish);
+			if (child) {
+				child.once("close", finish);
+				child.once("exit", finish);
+			}
 			const forceKill = () => {
-				if (child.exitCode !== null || child.signalCode !== null) return;
+				if (child && (child.exitCode !== null || child.signalCode !== null)) return;
 				if (process.platform === "win32") {
 					execFile("taskkill.exe", ["/pid", String(pid), "/T", "/F"], { shell: false }, () => {});
 				} else {
-					try { child.kill("SIGKILL"); } catch {}
+					try { process.kill(pid, "SIGKILL"); } catch {}
 				}
 			};
 			if (!options || !options.fromSigint) {
@@ -512,8 +627,15 @@ class MinerManager {
 					const psCmd = `$m='[DllImport(\"kernel32.dll\")]public static extern bool AttachConsole(uint p);[DllImport(\"kernel32.dll\")]public static extern bool FreeConsole();[DllImport(\"kernel32.dll\")]public static extern bool GenerateConsoleCtrlEvent(uint e,uint p);';Add-Type -MemberDefinition $m -Name K -Namespace W;[W.K]::FreeConsole();[W.K]::AttachConsole(${pid});[W.K]::GenerateConsoleCtrlEvent(0,0);`;
 					execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psCmd], { windowsHide: true }, () => {});
 				} else {
-					try { child.kill("SIGINT"); } catch {}
+					try { process.kill(pid, "SIGINT"); } catch {}
 				}
+			}
+			if (!child) {
+				timer(() => {
+					forceKill();
+					finish();
+				}, 1000);
+				return;
 			}
 			this._forceKillTimer = timer(forceKill, this.timeouts.forceKill);
 			const watchdog = timer(() => {
@@ -540,6 +662,7 @@ class MinerManager {
 
 	dispose() {
 		this.clearIdle(false);
+		this._clearGraceTimer();
 		this._clearScheduledAction();
 		clearTimeout(this._forceKillTimer);
 		this._forceKillTimer = null;

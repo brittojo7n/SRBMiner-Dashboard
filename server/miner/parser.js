@@ -16,6 +16,7 @@ const RX_FATAL = /\b(?:(?:cuda|ocl|opencl|compute|internal)\s+error|failed\s+to\
 const RX_POOL_DOWN = /stratum[\s_](?:connection\s+(?:failed|timed\s+out|interrupted)|recv_line\s+(?:timed\s+out|failed)|subscribe\s+(?:send\s+)?(?:failed|timed\s+out)|send_line\s+failed|authentication\s+failed|thread\s+create\s+failed)|json_rpc_call\s+failed|pool\s+connection\s+lost/i;
 const RX_DAG_START = /\b(?:generating\s+(?:cache|dag|dataset|datatable)|creating\s+(?:dag|dataset|datatable|cache)|building\s+(?:dag|dataset|datatable)|epoch\s*:\s*\d+|rx\s+(?:cache|dataset)\s+init|hold\s+on,\s+doing\s+the\s+first\s+devfee)\b/i;
 const RX_DAG_DONE = /\b(?:(?:dag|dataset|datatable)\s+(?:created|built|initialized|generated)|rx\s+initialization\s+time)\b/i;
+const RX_RESTARTING = /restarting\s+miner/i;
 
 function toHashrateHz(val, unit) {
 	const u = (unit || "").charCodeAt(0) | 32;
@@ -28,7 +29,7 @@ function toHashrateHz(val, unit) {
 
 function isMinerActive(state) {
 	const s = state.mining.status;
-	return Boolean(state.miner && state.miner.running && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED);
+	return Boolean(state.miner && (state.miner.running || state.mining.recovering) && s !== STATUS.RESTARTING && s !== STATUS.STOPPING && s !== STATUS.STOPPED);
 }
 
 function canSetRunStatus(state) {
@@ -103,6 +104,10 @@ function parseMinerLine(raw, state, pushLog) {
 		type = LOG.ERROR;
 	} else if (couldntMatch) {
 		type = LOG.ERROR;
+	} else if (RX_RESTARTING.test(line)) {
+		type = LOG.WARN;
+		mining.status = STATUS.STARTING;
+		mining.recovering = true;
 	} else if (RX_FATAL.test(line)) {
 		isFatal = true;
 		type = LOG.ERROR;

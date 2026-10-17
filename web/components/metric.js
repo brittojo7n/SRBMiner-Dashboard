@@ -1,5 +1,6 @@
 import { make, text } from "../lib/dom.js";
 import { DASH } from "../lib/present.js";
+import { createRestartTooltip } from "./tooltip.js";
 
 const ACCENT_CLASS = {
 	cyan: "accent-cyan",
@@ -97,12 +98,16 @@ export function createMetric(opts = {}) {
 	if (subtext) {
 		const hr = make("hr", "metric-hr");
 		const subBox = make("div", "metric-subtext");
+		const labelGroup = make("span", "metric-sub-label-group");
 		const subLabelEl = make("span", "metric-sub-label");
+		const tooltip = createRestartTooltip(node);
+		labelGroup.append(subLabelEl, tooltip);
 		const subValEl = make("span", "metric-sub-value");
-		subBox.append(subLabelEl, subValEl);
+		subBox.append(labelGroup, subValEl);
 		node.append(hr, subBox);
 		refs.subLabel = subLabelEl;
 		refs.subVal = subValEl;
+		refs.subBox = subBox;
 	}
 
 	let currentAccent = accent;
@@ -117,7 +122,13 @@ export function createMetric(opts = {}) {
 				text(refs.subLabel, next.subLabel);
 			}
 			if (next.subValue !== undefined && refs.subVal) {
-				text(refs.subVal, next.subValue);
+				if (next.subValue instanceof Node) {
+					if (refs.subVal.firstChild !== next.subValue) {
+						refs.subVal.replaceChildren(next.subValue);
+					}
+				} else {
+					text(refs.subVal, next.subValue);
+				}
 			}
 			if (next.value !== undefined) text(refs.num, next.value);
 			if (next.unit !== undefined && refs.unit) {

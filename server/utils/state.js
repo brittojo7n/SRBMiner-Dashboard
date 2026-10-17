@@ -59,6 +59,7 @@ function createState(wallet = "", maxLogs = 50, algo = "", pool = "") {
 			running: false,
 			pid: null,
 			startedAt: null,
+			sessionStartedAt: null,
 			exitCode: null,
 			signal: null,
 			lastLine: "",
@@ -90,6 +91,9 @@ function createState(wallet = "", maxLogs = 50, algo = "", pool = "") {
 			rigName: "",
 			minerVersion: "",
 			autoRestarts: 0,
+			normalRestarts: 0,
+			hardRestarts: 0,
+			recovering: false,
 			idleSince: null,
 			restartAt: null,
 			positivePings: 0,
@@ -163,7 +167,8 @@ function getPoolLatencies(state) {
 function formatStatsSnapshot(state, options) {
 	const now = Date.now();
 	const { miner, mining } = state;
-	const minerStart = miner.startedAt || state.startedAt;
+	const sessionStart = miner.sessionStartedAt;
+	const minerStart = sessionStart || miner.startedAt || state.startedAt;
 	const logs = miner.logs;
 	const sinceId = options && Number.isFinite(options.logsSince) ? options.logsSince : 0;
 	const entries = sinceId > 0 ? logs.since(sinceId) : logs.toJSON();
@@ -172,11 +177,12 @@ function formatStatsSnapshot(state, options) {
 	for (let i = 0; i < gpus.length; i++) gpus[i].hashrate = hashrateForGpu(state, gpus[i]);
 	return {
 		now,
-		uptimeSeconds: miner.running && minerStart ? Math.max(0, Math.floor((now - minerStart) / 1000)) : 0,
+		uptimeSeconds: sessionStart ? Math.max(0, Math.floor((now - sessionStart) / 1000)) : 0,
 		acceptedRatio: mining.submitted > 0 ? (mining.accepted / mining.submitted) * 100 : null,
-		startedAt: minerStart,
+		startedAt: sessionStart,
 		miner: {
 			running: miner.running, pid: miner.pid, startedAt: miner.startedAt,
+			sessionStartedAt: miner.sessionStartedAt,
 			exitCode: miner.exitCode, signal: miner.signal, lastLine: miner.lastLine,
 			lastError: miner.lastError, wallet: miner.wallet, logs: entries,
 			algo: miner.algo || "", pool: miner.pool || "",
@@ -195,6 +201,9 @@ function formatStatsSnapshot(state, options) {
 			rigName: mining.rigName || "",
 			minerVersion: mining.minerVersion || "",
 			autoRestarts: mining.autoRestarts || 0,
+			normalRestarts: mining.normalRestarts || 0,
+			hardRestarts: mining.hardRestarts || 0,
+			recovering: Boolean(mining.recovering),
 			restartAt: mining.restartAt || null,
 		},
 		gpuError: state.gpuError || "",
