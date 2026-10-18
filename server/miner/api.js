@@ -19,21 +19,22 @@ class ApiManager extends Poller {
 
 	_onApiCrash(msg) {
 		if (!this.minerManager || this.minerManager.isBusy || this.state.mining.recovering) return;
-		this.state.miner.lastError = msg;
-		this.state.mining.hardRestarts = (this.state.mining.hardRestarts || 0) + 1;
-		this.state.mining.autoRestarts = (this.state.mining.normalRestarts || 0) + this.state.mining.hardRestarts;
-		this.minerManager.pushLog(`${msg}; restarting miner immediately.`, LOG.ERROR);
-		this.minerManager.autoRestart();
+		this.minerManager.triggerHardRestart(`${msg}; restarting miner immediately.`, true);
 	}
 
 	_onApiError() {
-		if (!this.minerManager || this.minerManager.isBusy || this.state.mining.recovering) return;
+		if (!this.minerManager || this.minerManager.isBusy) return;
+		if (this.state.mining.recovering || this.state.mining.status === STATUS.IDLE) {
+			this.apiOnline = false;
+			this.failCount = 0;
+			return;
+		}
 		if (this.apiOnline) {
 			this.failCount++;
-			if (this.failCount >= 2 || this.state.mining.status === STATUS.IDLE) {
+			if (this.failCount >= LIMITS.IDLE_ZERO_PINGS) {
 				this.apiOnline = false;
 				this.failCount = 0;
-				this._onApiCrash("Miner API became inaccessible");
+				this.minerManager.enterIdle("Miner API became inaccessible");
 			}
 		}
 	}
@@ -73,7 +74,7 @@ class ApiManager extends Poller {
 				}
 				this.apiOnline = true;
 				this.failCount = 0;
-				if (this.minerManager && (this.state.mining.recovering || this.minerManager.isGraceActive)) {
+				if (!this.state.miner.running && this.state.mining.recovering && this.minerManager) {
 					this.minerManager.onSelfRestartDetected();
 				}
 				if (data) {
@@ -134,18 +135,15 @@ class ApiManager extends Poller {
 				if (gpuExpected && totalGpuHr <= 0) mining.hashrateGpu = 0;
 				if (cpuExpected && totalCpuHr <= 0) mining.hashrateCpu = 0;
 				if (mining.restartAt && now >= mining.restartAt && this.minerManager) {
-					this.state.mining.hardRestarts = (this.state.mining.hardRestarts || 0) + 1;
-					this.state.mining.autoRestarts = (this.state.mining.normalRestarts || 0) + this.state.mining.hardRestarts;
-					this.minerManager.pushLog("Watchdog: Miner did not recover within grace period; restarting.", LOG.WARN);
-					this.minerManager.autoRestart();
+					this.minerManager.triggerHardRestart("Watchdog: Miner did not recover within 60s grace period; initiating hard restart.");
 				}
 				return;
 			}
 			mining.positivePings = (mining.positivePings || 0) + 1;
-			if (elapsed < settleMs) {
+			if (!mining.recovering && elapsed < settleMs) {
 				return;
 			}
-			if (mining.idleZeroSeen || mining.positivePings >= LIMITS.IDLE_ZERO_PINGS) {
+			if (mining.idleZeroSeen || mining.recovering || mining.positivePings >= LIMITS.IDLE_ZERO_PINGS) {
 				if (this.minerManager) this.minerManager.clearIdle(true);
 				else {
 					mining.status = STATUS.MINING;
@@ -156,10 +154,7 @@ class ApiManager extends Poller {
 				return;
 			}
 			if (mining.restartAt && now >= mining.restartAt && this.minerManager) {
-				this.state.mining.hardRestarts = (this.state.mining.hardRestarts || 0) + 1;
-				this.state.mining.autoRestarts = (this.state.mining.normalRestarts || 0) + this.state.mining.hardRestarts;
-				this.minerManager.pushLog("Watchdog: Miner did not recover within grace period; restarting.", LOG.WARN);
-				this.minerManager.autoRestart();
+				this.minerManager.triggerHardRestart("Watchdog: Miner did not recover within 60s grace period; initiating hard restart.");
 			}
 			return;
 		}
@@ -180,6 +175,10 @@ class ApiManager extends Poller {
 			return;
 		}
 
+		if (this.minerManager && (this.minerManager._pendingRestartType || mining.recovering)) {
+			this.minerManager.clearIdle(true);
+			return;
+		}
 		mining.status = STATUS.MINING;
 	}
 

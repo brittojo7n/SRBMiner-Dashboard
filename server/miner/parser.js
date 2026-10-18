@@ -106,8 +106,12 @@ function parseMinerLine(raw, state, pushLog) {
 		type = LOG.ERROR;
 	} else if (RX_RESTARTING.test(line)) {
 		type = LOG.WARN;
-		mining.status = STATUS.STARTING;
 		mining.recovering = true;
+		if (isMinerActive(state)) {
+			mining.dagBuilding = false;
+			mining.status = STATUS.IDLE;
+			state.dirty = true;
+		}
 	} else if (RX_FATAL.test(line)) {
 		isFatal = true;
 		type = LOG.ERROR;
